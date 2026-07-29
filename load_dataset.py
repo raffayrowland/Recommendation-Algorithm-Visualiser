@@ -1,6 +1,6 @@
 import os
 from datasets import load_dataset
-from database import add_metadata
+from database import add_metadata_bulk, add_cfbpr_bulk, add_clap_embeddings_bulk
 
 os.makedirs("dataset/metadata", exist_ok=True)
 os.makedirs("dataset/users", exist_ok=True)
@@ -19,11 +19,11 @@ clap_embeddings = load_dataset(
     split="train",
 )
 
-user_embeddings = load_dataset(
-    "parquet",
-    data_files="dataset/users/user-*.parquet",
-    split="train",
-)
+# user_embeddings = load_dataset(
+#     "parquet",
+#     data_files="dataset/users/user-*.parquet",
+#     split="train",
+# )
 
 item_embeddings = load_dataset(
     "parquet",
@@ -31,16 +31,80 @@ item_embeddings = load_dataset(
     split="train",
 )
 
-for i in range(10):
-    print((metadata[i]["track_id"],
-           metadata[i]["ISRC"][0],
-           metadata[i]["track_name"][0],
-           metadata[i]["artist_name"][0],
-           metadata[i]["tag_list"])
-          )
+def insert_metadata():
+    print(metadata[0])
+    metadata_rows = []
+    for item in metadata:
+        if item["ISRC"] == [] or item["track_name"] == [] or item["artist_name"] == []:
+            continue
 
-    add_metadata(metadata[i]["track_id"],
-                 metadata[i]["ISRC"][0],
-                 metadata[i]["track_name"][0],
-                 metadata[i]["artist_name"][0],
-                 metadata[i]["tag_list"])
+        metadata_rows.append(
+            (
+                item["track_id"],
+                item["ISRC"][0],
+                item["track_name"][0],
+                item["artist_name"][0],
+                item["tag_list"]
+            )
+        )
+
+        if len(metadata_rows) >= 1_000_000:
+            add_metadata_bulk(metadata_rows)
+            print(f"Inserted {len(metadata_rows)} metadata")
+            metadata_rows = []
+
+    add_metadata_bulk(metadata_rows)
+    print(f"Inserted {len(metadata_rows)} metadata rows\n\n")
+
+
+def insert_clap_embeddings():
+    print(clap_embeddings[0])
+    clap_embeddings_rows = []
+    for item in clap_embeddings:
+        if item["id"] == "" or item["embedding"] == []:
+            continue
+
+        clap_embeddings_rows.append(
+            (
+                item["id"],
+                item["embedding"]
+            )
+        )
+
+        if len(clap_embeddings_rows) >= 100_000:
+            add_clap_embeddings_bulk(clap_embeddings_rows)
+            print(f"Inserted {len(clap_embeddings_rows)} clap embeddings")
+            clap_embeddings_rows = []
+
+    add_clap_embeddings_bulk(clap_embeddings_rows)
+    print(f"Inserted {len(clap_embeddings_rows)} clap embeddings\n\n")
+
+
+def insert_cfbpr_embeddings():
+    print(item_embeddings[0])
+    cfpbr_embeddings_rows = []
+
+    for item in item_embeddings:
+        if item["id"] == "" or item["embedding"] == []:
+            continue
+
+        cfpbr_embeddings_rows.append(
+            (
+                item["id"],
+                item["embedding"]
+            )
+        )
+
+        if len(cfpbr_embeddings_rows) >= 100_000:
+            add_cfbpr_bulk(cfpbr_embeddings_rows)
+            print(f"Inserted {len(cfpbr_embeddings_rows)} cfbpr embeddings")
+            cfpbr_embeddings_rows = []
+
+    add_cfbpr_bulk(cfpbr_embeddings_rows)
+    print(f"Inserted {len(cfpbr_embeddings_rows)} cfbpr embeddings")
+
+insert_metadata()
+
+insert_clap_embeddings()
+
+insert_cfbpr_embeddings()

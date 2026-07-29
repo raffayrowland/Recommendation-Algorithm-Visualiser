@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE metadata (
     track_id VARCHAR(22) PRIMARY KEY,
-    isrc VARCHAR(12),
+    isrc VARCHAR(12) NOT NULL,
     track_name TEXT NOT NULL,
     artist_name TEXT NOT NULL,
     tag_list TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
