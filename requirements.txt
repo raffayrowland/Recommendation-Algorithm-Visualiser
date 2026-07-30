@@ -3,3 +3,6 @@ numpy
 pgvector
 psycopg[binary]
 python-dotenv
+plotly
+umap-learn
+pandas

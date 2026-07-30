@@ -91,7 +91,17 @@ def get_random_songs(n):
     connection = get_connection()
     try:
         with connection.cursor() as cursor:
-            cursor.execute("SELECT track_id, isrc, track_name FROM metadata ORDER BY RANDOM() LIMIT %s", (n,))
+            cursor.execute(
+                """
+                SELECT metadata.track_id, cf_bpr.embedding, clap_embeddings.embedding
+                FROM metadata
+                JOIN cf_bpr ON cf_bpr.track_id = metadata.track_id
+                JOIN clap_embeddings ON clap_embeddings.track_id = metadata.track_id
+                ORDER BY RANDOM()
+                LIMIT %s
+                """,
+                (n,),
+            )
             return cursor.fetchall()
     finally:
         connection.close()
@@ -116,6 +126,33 @@ def get_clap(track_id):
             cursor.execute("SELECT embedding FROM clap_embeddings WHERE track_id = %s", (track_id,))
             row = cursor.fetchone()
             return row[0] if row else None
+
+    finally:
+        connection.close()
+
+
+def get_cfbpr_bulk(track_ids):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT track_id, embedding FROM cf_bpr WHERE track_id = ANY(%s)",
+                (list(track_ids),),
+            )
+            return cursor.fetchall()
+    finally:
+        connection.close()
+
+
+def get_clap_bulk(track_ids):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT track_id, embedding FROM clap_embeddings WHERE track_id = ANY(%s)",
+                (list(track_ids),),
+            )
+            return cursor.fetchall()
 
     finally:
         connection.close()
