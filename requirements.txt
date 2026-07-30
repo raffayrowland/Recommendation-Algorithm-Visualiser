@@ -1,0 +1,5 @@
+datasets
+numpy
+pgvector
+psycopg[binary]
+python-dotenv
