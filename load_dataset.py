@@ -1,6 +1,7 @@
 import os
 from datasets import load_dataset
-from database import add_metadata_bulk, add_cfbpr_bulk, add_clap_embeddings_bulk
+import numpy as np
+from database import *
 
 os.makedirs("dataset/metadata", exist_ok=True)
 os.makedirs("dataset/users", exist_ok=True)
@@ -103,8 +104,42 @@ def insert_cfbpr_embeddings():
     add_cfbpr_bulk(cfpbr_embeddings_rows)
     print(f"Inserted {len(cfpbr_embeddings_rows)} cfbpr embeddings")
 
+
+def store_combined_embeddings():
+    def normalise_vectors(vectors):
+        magnitudes = np.linalg.norm(vectors, axis=1, keepdims=True)
+
+        # Avoid division by zero
+        magnitudes[magnitudes == 0] = 1
+
+        return vectors / magnitudes
+
+    all_track_ids = get_all_track_ids()
+
+    print(all_track_ids[0])
+
+    for track_id in all_track_ids:
+        cfbpr = get_cfbpr(track_id[0]).to_numpy()
+        clap = get_clap(track_id[0]).to_numpy()
+
+        norm_cfbpr = normalise_vectors(cfbpr)
+        norm_clap = normalise_vectors(clap)
+
+        combined_vectors = [track_id]
+        for alpha in [0.25, 0.5, 0.75, 1]:
+            combined = np.concatenate(
+                np.sqrt(alpha) * norm_cfbpr,
+                np.sqrt(1 - alpha) * norm_clap
+            )
+            combined_vectors.append(combined)
+
+        add_combined(combined_vectors)
+
+
 insert_metadata()
 
 insert_clap_embeddings()
 
 insert_cfbpr_embeddings()
+
+store_combined_embeddings()

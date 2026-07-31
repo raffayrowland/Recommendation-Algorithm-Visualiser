@@ -41,6 +41,17 @@ def add_metadata_bulk(rows):
         connection.close()
 
 
+def get_all_track_ids():
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT track_id FROM metadata")
+            return cursor.fetchall()
+
+    finally:
+        connection.close()
+
+
 def add_clap_embeddings_bulk(rows):
     connection = get_connection()
     try:
@@ -86,6 +97,20 @@ def add_cfbpr_bulk(rows):
     finally:
         connection.close()
 
+
+def add_combined(row):
+    connection = get_connection()
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                           INSERT INTO clap_embeddings 
+                               (track_id, emb_025, emb_050, emb_075, emb_100) 
+                           VALUES (%s, %s)
+                           """, (row[0], row[1], row[2], row[3], row[4]))
+            connection.commit()
+
+    finally:
+        connection.close()
 
 def get_random_songs(n):
     connection = get_connection()

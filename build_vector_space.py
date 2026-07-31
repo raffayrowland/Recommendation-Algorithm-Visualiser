@@ -58,7 +58,7 @@ figure = go.Figure(
             z=songs_and_embeddings["z"],
             customdata=songs_and_embeddings[["track_id"]],
             mode="markers",
-            marker={"size": 5, "opacity": 0.8},
+            marker={"size": 1.5, "opacity": 1},
             hovertemplate="Track ID: %{customdata[0]}<extra></extra>",
         )
     ]

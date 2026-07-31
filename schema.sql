@@ -36,6 +36,19 @@ CREATE TABLE cf_bpr (
         ON DELETE CASCADE
 );
 
+CREATE TABLE combined_embeddings (
+    track_id VARCHAR(22) PRIMARY KEY,
+    emb_025 vector(640) NOT NULL,
+    emb_050 vector(640) NOT NULL,
+    emb_075 vector(640) NOT NULL,
+    emb_100 vector(640) NOT NULL,
+
+    CONSTRAINT combined_track_fk
+        FOREIGN KEY (track_id)
+        REFERENCES metadata(track_id)
+        ON DELETE CASCADE
+);
+
 CREATE INDEX metadata_isrc_index
     ON metadata(isrc);
 
