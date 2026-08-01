@@ -9,7 +9,8 @@ CREATE TABLE metadata (
     isrc VARCHAR(12),
     track_name TEXT[] NOT NULL,
     artist_name TEXT[] NOT NULL,
-    tag_list TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]
+    tag_list TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    search_document TSVECTOR NOT NULL
 );
 
 CREATE TABLE clap_embeddings (

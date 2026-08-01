@@ -8,6 +8,7 @@ from calculate_combined import *
 connection = get_connection()
 BATCH_SIZE = 10_000
 
+# Batch generator
 def batches(items):
     iterator = iter(items)
     while batch := list(islice(iterator, BATCH_SIZE)):
@@ -24,6 +25,7 @@ metadata = load_dataset(
     split="train",
 )
 
+# Insert all metadata rows
 count = 0
 with connection.cursor() as cursor:
     for batch in batches(metadata):
@@ -35,13 +37,15 @@ with connection.cursor() as cursor:
                 continue
 
             isrcs = item["ISRC"]
+            artist_name = item["artist_name"]
             rows.append(
                 (
                     item["track_id"],
                     isrcs[0] if isrcs else None,
                     track_name,
-                    item["artist_name"],
+                    artist_name,
                     item["tag_list"],
+                    " ".join((*track_name, *artist_name)),
                 )
             )
 
@@ -50,8 +54,10 @@ with connection.cursor() as cursor:
 
         cursor.executemany(
             """
-            INSERT INTO metadata (track_id, ISRC, track_name, artist_name, tag_list)
-                VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO metadata (
+                track_id, ISRC, track_name, artist_name, tag_list, search_document
+            )
+                VALUES (%s, %s, %s, %s, %s, to_tsvector('simple', %s))
                 ON CONFLICT (track_id) DO NOTHING
             """,
             rows,
@@ -70,6 +76,7 @@ clap_embeddings = load_dataset(
     split="train",
 )
 
+# Insert all CLAP embeddings
 count = 0
 with connection.cursor() as cursor:
     for batch in batches(clap_embeddings):
@@ -100,6 +107,7 @@ item_embeddings = load_dataset(
     split="train",
 )
 
+# Insert all cf-bpr embeddings
 count = 0
 with connection.cursor() as cursor:
     for batch in batches(item_embeddings):
@@ -160,10 +168,10 @@ with connection.cursor() as cursor:
         );
         """
     )
+print("Deleted rows that do not appear in all three databases")
 connection.commit()
 
-#  Create indexes - TODO
-
+# Calculate and insert combined embeddings for alphas 0, 0.25, 0.5, 0.75, and 1
 count = 0
 with connection.cursor() as cursor:
     all_track_ids = cursor.execute("SELECT track_id FROM metadata").fetchall()
@@ -211,5 +219,27 @@ with connection.cursor() as cursor:
             print(f"{count} combined embeddings inserted\r", end="")
 
 print(f"{count} combined embeddings inserted")
+connection.commit()
+
+# Build indexes to speed up NN and text search
+with connection.cursor() as cursor:
+    cursor.execute(
+        """
+        CREATE INDEX combined_embeddings_emb_000_hnsw_idx
+            ON combined_embeddings USING hnsw (emb_000 vector_cosine_ops);
+        CREATE INDEX combined_embeddings_emb_025_hnsw_idx
+            ON combined_embeddings USING hnsw (emb_025 vector_cosine_ops);
+        CREATE INDEX combined_embeddings_emb_050_hnsw_idx
+            ON combined_embeddings USING hnsw (emb_050 vector_cosine_ops);
+        CREATE INDEX combined_embeddings_emb_075_hnsw_idx
+            ON combined_embeddings USING hnsw (emb_075 vector_cosine_ops);
+        CREATE INDEX combined_embeddings_emb_100_hnsw_idx
+            ON combined_embeddings USING hnsw (emb_100 vector_cosine_ops);
+        CREATE INDEX metadata_search_document_gin_idx
+            ON metadata USING gin (search_document);
+        """
+    )
+print("Created indexes")
+
 connection.commit()
 connection.close()
