@@ -18,72 +18,76 @@ def get_connection():
     return connection
 
 
-def get_random_songs(n):
+def search_for_song_by_name(query):
     connection = get_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT metadata.track_id, cf_bpr.embedding, clap_embeddings.embedding
-                FROM metadata
-                JOIN cf_bpr ON cf_bpr.track_id = metadata.track_id
-                JOIN clap_embeddings ON clap_embeddings.track_id = metadata.track_id
-                ORDER BY RANDOM()
-                LIMIT %s
-                """,
-                (n,),
-            )
-            return cursor.fetchall()
-    finally:
-        connection.close()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 
+                track_id, track_name, artist_name
+            FROM metadata
+            WHERE search_document @@ websearch_to_tsquery('simple', %s)
+            LIMIT 5
+            """, (query,)
+        )
+        results = cursor.fetchall()
+
+    return results
 
 
-def get_cfbpr(track_id):
+def search_for_song_by_id(track_id):
     connection = get_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT embedding FROM cf_bpr WHERE track_id = %s", (track_id,))
-            row = cursor.fetchone()
-            return row[0] if row else None
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT track_id, track_name, artist_name
+            FROM metadata
+            WHERE track_id = %s
+            """, (track_id,)
+        )
+        result = cursor.fetchone()
 
-    finally:
-        connection.close()
+    return result
 
 
-def get_clap(track_id):
+def get_nearest_neighbours(track_id, alpha):
     connection = get_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT embedding FROM clap_embeddings WHERE track_id = %s", (track_id,))
-            row = cursor.fetchone()
-            return row[0] if row else None
+    match alpha:
+        case 0:
+            alpha = "000"
+        case 0.25:
+            alpha = "025"
+        case 0.5:
+            alpha = "050"
+        case 0.75:
+            alpha = "075"
+        case 1:
+            alpha = "100"
 
-    finally:
-        connection.close()
+    with connection.cursor() as cursor:
+        sql = f"""
+            SELECT emb_{alpha}
+            FROM combined_embeddings
+            WHERE track_id = %s;
+            """
+        query_embedding = cursor.execute(sql, (track_id,)).fetchone()
 
+        if query_embedding is None:
+            return []
 
-def get_cfbpr_bulk(track_ids):
-    connection = get_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT track_id, embedding FROM cf_bpr WHERE track_id = ANY(%s)",
-                (list(track_ids),),
-            )
-            return cursor.fetchall()
-    finally:
-        connection.close()
+        sql = f"""
+            SELECT
+                track_id,
+                emb_{alpha} <=> %(embedding)s AS cosine_distance
+            FROM combined_embeddings
+            ORDER BY emb_{alpha} <=> %(embedding)s
+            LIMIT 11;
+            """
+        results = cursor.execute(sql, {"embedding": query_embedding[0]},).fetchall()
 
-
-def get_clap_bulk(track_ids):
-    connection = get_connection()
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT track_id, embedding FROM clap_embeddings WHERE track_id = ANY(%s)",
-                (list(track_ids),),
-            )
-            return cursor.fetchall()
-
-    finally:
-        connection.close()
+    # The queried track will normally be the closest result.
+    return [
+        result
+        for result in results
+        if result[0] != track_id
+    ][:10]
