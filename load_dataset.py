@@ -1,7 +1,17 @@
 import os
+from itertools import islice
 from datasets import load_dataset
 import numpy as np
-from database import *
+from database import get_connection
+from calculate_combined import *
+
+connection = get_connection()
+BATCH_SIZE = 10_000
+
+def batches(items):
+    iterator = iter(items)
+    while batch := list(islice(iterator, BATCH_SIZE)):
+        yield batch
 
 os.makedirs("dataset/metadata", exist_ok=True)
 os.makedirs("dataset/users", exist_ok=True)
@@ -14,17 +24,75 @@ metadata = load_dataset(
     split="train",
 )
 
+count = 0
+with connection.cursor() as cursor:
+    for batch in batches(metadata):
+        rows = []
+        for item in batch:
+            track_name = item["track_name"]
+            if not track_name:
+                count += 1
+                continue
+
+            isrcs = item["ISRC"]
+            rows.append(
+                (
+                    item["track_id"],
+                    isrcs[0] if isrcs else None,
+                    track_name,
+                    item["artist_name"],
+                    item["tag_list"],
+                )
+            )
+
+        if not rows:
+            continue
+
+        cursor.executemany(
+            """
+            INSERT INTO metadata (track_id, ISRC, track_name, artist_name, tag_list)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (track_id) DO NOTHING
+            """,
+            rows,
+        )
+
+        count += len(rows)
+        if count % 10000 == 0:
+            print(f"\r{count} metadata rows inserted", end="")
+
+print(f"\r{count} metadata rows inserted")
+connection.commit()
+
 clap_embeddings = load_dataset(
     "parquet",
     data_files="dataset/clap/train-*.parquet",
     split="train",
 )
 
-# user_embeddings = load_dataset(
-#     "parquet",
-#     data_files="dataset/users/user-*.parquet",
-#     split="train",
-# )
+count = 0
+with connection.cursor() as cursor:
+    for batch in batches(clap_embeddings):
+        rows = [(item["id"], item["embedding"], item["id"]) for item in batch]
+
+        cursor.executemany(
+            """
+            INSERT INTO clap_embeddings (track_id, embedding)
+                SELECT %s, %s
+                WHERE EXISTS (
+                    SELECT 1 FROM metadata WHERE track_id = %s
+                )
+                ON CONFLICT (track_id) DO NOTHING
+            """,
+            rows,
+        )
+
+        count += len(rows)
+        if count % 10000 == 0:
+            print(f"\r{count} clap rows inserted", end="")
+
+print(f"\r{count} clap rows inserted")
+connection.commit()
 
 item_embeddings = load_dataset(
     "parquet",
@@ -32,114 +100,116 @@ item_embeddings = load_dataset(
     split="train",
 )
 
-def insert_metadata():
-    print(metadata[0])
-    metadata_rows = []
-    for item in metadata:
-        if item["ISRC"] == [] or item["track_name"] == [] or item["artist_name"] == []:
-            continue
+count = 0
+with connection.cursor() as cursor:
+    for batch in batches(item_embeddings):
+        rows = [(item["id"], item["embedding"], item["id"]) for item in batch]
 
-        metadata_rows.append(
-            (
-                item["track_id"],
-                item["ISRC"][0],
-                item["track_name"][0],
-                item["artist_name"][0],
-                item["tag_list"]
-            )
+        cursor.executemany(
+            """
+            INSERT INTO cf_bpr (track_id, embedding)
+                SELECT %s, %s
+                WHERE EXISTS (
+                    SELECT 1 FROM metadata WHERE track_id = %s
+                )
+                ON CONFLICT (track_id) DO NOTHING
+            """,
+            rows,
         )
 
-        if len(metadata_rows) >= 1_000_000:
-            add_metadata_bulk(metadata_rows)
-            print(f"Inserted {len(metadata_rows)} metadata")
-            metadata_rows = []
+        count += len(rows)
+        if count % 10000 == 0:
+            print(f"\r{count} cfbpr rows inserted", end="")
 
-    add_metadata_bulk(metadata_rows)
-    print(f"Inserted {len(metadata_rows)} metadata rows\n\n")
+print(f"\r{count} cfbpr rows inserted")
+connection.commit()
 
+# Delete rows that do not appear in all three databases
+with connection.cursor() as cursor:
+    cursor.execute(
+        """
+        CREATE TEMP TABLE common_track_ids
+        ON COMMIT DROP
+        AS
+        SELECT m.track_id
+        FROM metadata AS m
+        INNER JOIN clap_embeddings AS c
+            ON c.track_id = m.track_id
+        INNER JOIN cf_bpr AS b
+            ON b.track_id = m.track_id;
 
-def insert_clap_embeddings():
-    print(clap_embeddings[0])
-    clap_embeddings_rows = []
-    for item in clap_embeddings:
-        if item["id"] == "" or item["embedding"] == []:
-            continue
+        DELETE FROM clap_embeddings AS c
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM common_track_ids AS common
+            WHERE common.track_id = c.track_id
+        );
 
-        clap_embeddings_rows.append(
-            (
-                item["id"],
-                item["embedding"]
-            )
+        DELETE FROM cf_bpr AS b
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM common_track_ids AS common
+            WHERE common.track_id = b.track_id
+        );
+
+        DELETE FROM metadata AS m
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM common_track_ids AS common
+            WHERE common.track_id = m.track_id
+        );
+        """
+    )
+connection.commit()
+
+#  Create indexes - TODO
+
+count = 0
+with connection.cursor() as cursor:
+    all_track_ids = cursor.execute("SELECT track_id FROM metadata").fetchall()
+
+    for batch in batches(all_track_ids):
+        track_ids = [track_id[0] for track_id in batch]
+
+        cfbpr_clap = cursor.execute(
+            """
+            SELECT c.track_id,
+                   c.embedding AS clap_embedding,
+                   b.embedding AS cf_bpr_embedding
+            FROM clap_embeddings AS c
+                     JOIN cf_bpr AS b ON b.track_id = c.track_id
+            WHERE c.track_id = ANY (%s)
+            """,
+            (track_ids,),
+        ).fetchall()
+
+        rows = []
+        for track_id, clap_embedding, cfbpr_embedding in cfbpr_clap:
+            clap = clap_embedding.to_numpy()
+            cfbpr = cfbpr_embedding.to_numpy()
+            cfbpr, clap = normalise_vectors(cfbpr, clap)
+
+            rows.append((
+                track_id,
+                calculate_combined(cfbpr, clap, 0),
+                calculate_combined(cfbpr, clap, 0.25),
+                calculate_combined(cfbpr, clap, 0.5),
+                calculate_combined(cfbpr, clap, 0.75),
+                calculate_combined(cfbpr, clap, 1),
+            ))
+
+        cursor.executemany(
+            """
+            INSERT INTO combined_embeddings (track_id, emb_000, emb_025, emb_050, emb_075, emb_100)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (track_id) DO NOTHING
+            """, rows
         )
+        count += len(rows)
 
-        if len(clap_embeddings_rows) >= 100_000:
-            add_clap_embeddings_bulk(clap_embeddings_rows)
-            print(f"Inserted {len(clap_embeddings_rows)} clap embeddings")
-            clap_embeddings_rows = []
+        if count % 10000 == 0:
+            print(f"{count} combined embeddings inserted\r", end="")
 
-    add_clap_embeddings_bulk(clap_embeddings_rows)
-    print(f"Inserted {len(clap_embeddings_rows)} clap embeddings\n\n")
-
-
-def insert_cfbpr_embeddings():
-    print(item_embeddings[0])
-    cfpbr_embeddings_rows = []
-
-    for item in item_embeddings:
-        if item["id"] == "" or item["embedding"] == []:
-            continue
-
-        cfpbr_embeddings_rows.append(
-            (
-                item["id"],
-                item["embedding"]
-            )
-        )
-
-        if len(cfpbr_embeddings_rows) >= 100_000:
-            add_cfbpr_bulk(cfpbr_embeddings_rows)
-            print(f"Inserted {len(cfpbr_embeddings_rows)} cfbpr embeddings")
-            cfpbr_embeddings_rows = []
-
-    add_cfbpr_bulk(cfpbr_embeddings_rows)
-    print(f"Inserted {len(cfpbr_embeddings_rows)} cfbpr embeddings")
-
-
-def store_combined_embeddings():
-    def normalise_vectors(vectors):
-        magnitudes = np.linalg.norm(vectors, axis=1, keepdims=True)
-
-        # Avoid division by zero
-        magnitudes[magnitudes == 0] = 1
-
-        return vectors / magnitudes
-
-    all_track_ids = get_all_track_ids()
-
-    print(all_track_ids[0])
-
-    for track_id in all_track_ids:
-        cfbpr = get_cfbpr(track_id[0]).to_numpy()
-        clap = get_clap(track_id[0]).to_numpy()
-
-        norm_cfbpr = normalise_vectors(cfbpr)
-        norm_clap = normalise_vectors(clap)
-
-        combined_vectors = [track_id]
-        for alpha in [0.25, 0.5, 0.75, 1]:
-            combined = np.concatenate(
-                np.sqrt(alpha) * norm_cfbpr,
-                np.sqrt(1 - alpha) * norm_clap
-            )
-            combined_vectors.append(combined)
-
-        add_combined(combined_vectors)
-
-
-insert_metadata()
-
-insert_clap_embeddings()
-
-insert_cfbpr_embeddings()
-
-store_combined_embeddings()
+print(f"{count} combined embeddings inserted")
+connection.commit()
+connection.close()
