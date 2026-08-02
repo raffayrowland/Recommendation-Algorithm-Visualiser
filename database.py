@@ -90,4 +90,4 @@ def get_nearest_neighbours(track_id, alpha):
         result
         for result in results
         if result[0] != track_id
-    ][:10]
+    ]

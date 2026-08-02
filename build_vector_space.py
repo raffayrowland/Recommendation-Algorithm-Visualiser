@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 import umap
-from database import get_random_songs
 
 
 def normalise_vectors(vectors):

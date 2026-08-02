@@ -10,6 +10,7 @@ CREATE TABLE metadata (
     track_name TEXT[] NOT NULL,
     artist_name TEXT[] NOT NULL,
     tag_list TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    mpd_occurrences INT DEFAULT 0,
     search_document TSVECTOR NOT NULL
 );
 
