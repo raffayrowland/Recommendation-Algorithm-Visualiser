@@ -1,49 +1,27 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import umap
+from database import get_info_for_visualisation
 
+points = get_info_for_visualisation(40000, 0.75)
 
-def normalise_vectors(vectors):
-    magnitudes = np.linalg.norm(vectors, axis=1, keepdims=True)
-
-    # Avoid division by zero
-    magnitudes[magnitudes == 0] = 1
-
-    return vectors / magnitudes
-
-
-songs = list(get_random_songs(10000))
-
-track_ids = np.array([
-    track_id for track_id, _, _ in songs
-])
-
-cfbpr_embeddings = np.stack([
-    np.asarray(cfbpr.to_numpy(), dtype=float) for _, cfbpr, _ in songs
-])
-
-clap_embeddings = np.stack([
-    np.asarray(clap.to_numpy(), dtype=float) for _, _, clap in songs
-])
-
-prop = 0.5
-
-combined_embeddings = np.concatenate([
-    np.sqrt(prop) * normalise_vectors(cfbpr_embeddings),
-    np.sqrt(1 - prop) * normalise_vectors(clap_embeddings),
-], axis=1)
+track_ids, track_names, artist_names, combined_embeddings = map(list, zip(*points))
+combined_embeddings = np.stack(
+    [embedding.to_numpy() for embedding in combined_embeddings]
+)
 
 reduced_embeddings = umap.UMAP(
     n_components=3,
     metric="euclidean",
     n_neighbors=30,
     min_dist=0.1,
-    random_state=42,
 ).fit_transform(combined_embeddings)
 
 songs_and_embeddings = pd.DataFrame({
     "track_id": track_ids,
+    "track_name": track_names,
+    "artist_name": artist_names,
     "x": reduced_embeddings[:, 0],
     "y": reduced_embeddings[:, 1],
     "z": reduced_embeddings[:, 2],
@@ -55,10 +33,10 @@ figure = go.Figure(
             x=songs_and_embeddings["x"],
             y=songs_and_embeddings["y"],
             z=songs_and_embeddings["z"],
-            customdata=songs_and_embeddings[["track_id"]],
+            customdata=songs_and_embeddings[["track_name", "artist_name"]],
             mode="markers",
             marker={"size": 1.5, "opacity": 1},
-            hovertemplate="Track ID: %{customdata[0]}<extra></extra>",
+            hovertemplate="Song: %{customdata[0]}<br>Artist: %{customdata[1]}<extra></extra>",
         )
     ]
 )

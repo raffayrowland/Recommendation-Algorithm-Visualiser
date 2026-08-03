@@ -18,6 +18,40 @@ def get_connection():
     return connection
 
 
+def get_info_for_visualisation(n, alpha):
+    # Get track_id, track_name, artist_name, combined_embedding, and 1st tag for the top n songs
+    connection = get_connection()
+    match alpha:
+        case 0:
+            alpha = "000"
+        case 0.25:
+            alpha = "025"
+        case 0.5:
+            alpha = "050"
+        case 0.75:
+            alpha = "075"
+        case 1:
+            alpha = "100"
+
+
+    with connection.cursor() as cursor:
+        sql = f"""
+        SELECT
+            m.track_id,
+            m.track_name,
+            m.artist_name,
+            ce.emb_{alpha} AS combined_embedding
+        FROM metadata AS m
+        JOIN combined_embeddings AS ce
+            ON ce.track_id = m.track_id
+        ORDER BY m.mpd_occurrences DESC
+        LIMIT %s
+        """
+        cursor.execute(sql, (n,))
+        results = cursor.fetchall()
+
+    return results
+
 def search_for_song_by_name(query):
     connection = get_connection()
     with connection.cursor() as cursor:
