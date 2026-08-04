@@ -6,3 +6,4 @@ python-dotenv
 plotly
 umap-learn
 pandas
+fastapi

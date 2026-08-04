@@ -19,20 +19,8 @@ def get_connection():
 
 
 def get_info_for_visualisation(n, alpha):
-    # Get track_id, track_name, artist_name, combined_embedding, and 1st tag for the top n songs
+    # Get track_id, track_name, artist_name, combined_embedding for the top n songs
     connection = get_connection()
-    match alpha:
-        case 0:
-            alpha = "000"
-        case 0.25:
-            alpha = "025"
-        case 0.5:
-            alpha = "050"
-        case 0.75:
-            alpha = "075"
-        case 1:
-            alpha = "100"
-
 
     with connection.cursor() as cursor:
         sql = f"""
@@ -86,17 +74,6 @@ def search_for_song_by_id(track_id):
 
 def get_nearest_neighbours(track_id, alpha):
     connection = get_connection()
-    match alpha:
-        case 0:
-            alpha = "000"
-        case 0.25:
-            alpha = "025"
-        case 0.5:
-            alpha = "050"
-        case 0.75:
-            alpha = "075"
-        case 1:
-            alpha = "100"
 
     with connection.cursor() as cursor:
         sql = f"""
