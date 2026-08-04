@@ -1,9 +1,23 @@
-import psycopg
-from pgvector.psycopg import register_vector
 import os
+import unicodedata
+import psycopg
+from psycopg import sql
 from dotenv import load_dotenv
+from pgvector.psycopg import register_vector
 
 load_dotenv()
+
+def normalise_search_text(value):
+    decomposed = unicodedata.normalize("NFKD", value).casefold()
+    characters = []
+
+    for character in decomposed:
+        if unicodedata.combining(character):
+            continue
+        characters.append(character if character.isalnum() else " ")
+
+    return " ".join("".join(characters).split())
+
 
 def get_connection():
     connection = psycopg.connect(
@@ -40,65 +54,85 @@ def get_info_for_visualisation(n, alpha):
 
     return results
 
-def search_for_song_by_name(query):
-    connection = get_connection()
-    with connection.cursor() as cursor:
-        cursor.execute(
+def search_for_song_by_name(query, n=5):
+    query = normalise_search_text(query)
+    if len(query) < 2:
+        return []
+
+    limit = min(max(int(n), 1), 50)  # Get a max of n results if n < 50, else 50
+    with get_connection() as connection, connection.cursor() as cursor:
+        results = cursor.execute(
             """
-            SELECT 
-                track_id, track_name, artist_name
-            FROM metadata
-            WHERE search_document @@ websearch_to_tsquery('simple', %s)
-            LIMIT 5
-            """, (query,)
-        )
-        results = cursor.fetchall()
+            WITH search_query AS (
+                SELECT
+                    %(query)s::TEXT AS text,
+                    plainto_tsquery('simple', %(query)s) AS document
+            )
+            SELECT
+                m.track_id,
+                m.track_name,
+                m.artist_name
+            FROM metadata AS m
+            CROSS JOIN search_query AS q
+            WHERE
+                m.search_document @@ q.document
+                OR m.search_text %% q.text
+                OR q.text <%% m.search_text
+            ORDER BY
+                CASE
+                    WHEN m.search_document @@ q.document
+                        THEN ts_rank_cd(m.search_document, q.document)
+                    ELSE 0
+                END DESC,
+                strict_word_similarity(q.text, m.search_text) DESC,
+                m.mpd_occurrences DESC,
+                m.track_id
+            LIMIT %(limit)s
+            """,
+            {"query": query, "limit": limit},
+        ).fetchall()
 
     return results
 
 
-def search_for_song_by_id(track_id):
-    connection = get_connection()
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT track_id, track_name, artist_name
-            FROM metadata
-            WHERE track_id = %s
-            """, (track_id,)
-        )
-        result = cursor.fetchone()
-
-    return result
-
-
-def get_nearest_neighbours(track_id, alpha):
-    connection = get_connection()
-
-    with connection.cursor() as cursor:
-        sql = f"""
-            SELECT emb_{alpha}
+def get_nearest_neighbours(track_id, alpha, limit=50):
+    embedding_column = sql.Identifier(f"emb_{alpha}")
+    query = sql.SQL(
+        """
+        WITH seed AS MATERIALIZED (
+            SELECT {embedding} AS embedding
             FROM combined_embeddings
-            WHERE track_id = %s;
-            """
-        query_embedding = cursor.execute(sql, (track_id,)).fetchone()
-
-        if query_embedding is None:
-            return []
-
-        sql = f"""
+            WHERE track_id = %(track_id)s
+        ),
+        neighbours AS MATERIALIZED (
             SELECT
-                track_id,
-                emb_{alpha} <=> %(embedding)s AS cosine_distance
-            FROM combined_embeddings
-            ORDER BY emb_{alpha} <=> %(embedding)s
-            LIMIT 11;
-            """
-        results = cursor.execute(sql, {"embedding": query_embedding[0]},).fetchall()
+                candidate.track_id,
+                candidate.{embedding} <=> (SELECT embedding FROM seed) AS distance
+            FROM combined_embeddings AS candidate
+            WHERE EXISTS (SELECT 1 FROM seed)
+            ORDER BY distance
+            LIMIT %(candidate_limit)s
+        )
+        SELECT
+            neighbours.track_id,
+            metadata.track_name,
+            metadata.artist_name,
+            metadata.isrc,
+            neighbours.distance
+        FROM neighbours
+        JOIN metadata USING (track_id)
+        WHERE neighbours.track_id <> %(track_id)s
+        ORDER BY neighbours.distance
+        LIMIT %(limit)s
+        """
+    ).format(embedding=embedding_column)
 
-    # The queried track will normally be the closest result.
-    return [
-        result
-        for result in results
-        if result[0] != track_id
-    ]
+    parameters = {
+        "track_id": track_id,
+        "candidate_limit": limit + 1,
+        "limit": limit,
+    }
+
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute("SET LOCAL ivfflat.probes = 35")
+        return cursor.execute(query, parameters).fetchall()

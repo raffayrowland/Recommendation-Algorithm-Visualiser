@@ -1,6 +1,7 @@
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 DROP TABLE IF EXISTS combined_embeddings, clap_embeddings, cf_bpr, metadata;
 
@@ -11,6 +12,7 @@ CREATE TABLE metadata (
     artist_name TEXT[] NOT NULL,
     tag_list TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     mpd_occurrences INT DEFAULT 0,
+    search_text TEXT NOT NULL,
     search_document TSVECTOR NOT NULL
 );
 

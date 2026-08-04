@@ -1,12 +1,13 @@
 import os
 from itertools import islice
 from datasets import load_dataset
-import numpy as np
-from database import get_connection
+import time
+from database import get_connection, normalise_search_text
 from calculate_combined import *
 
 connection = get_connection()
 BATCH_SIZE = 10_000
+START_TIME = time.time()
 
 # Batch generator
 def batches(items):
@@ -39,6 +40,8 @@ with connection.cursor() as cursor:
 
             isrcs = item["ISRC"]
             artist_name = item["artist_name"]
+            track_search_text = normalise_search_text(" ".join(track_name))
+            artist_search_text = normalise_search_text(" ".join(artist_name))
             rows.append(
                 (
                     item["track_id"],
@@ -46,7 +49,9 @@ with connection.cursor() as cursor:
                     track_name,
                     artist_name,
                     item["tag_list"],
-                    " ".join((*track_name, *artist_name)),
+                    f"{track_search_text} {artist_search_text}".strip(),
+                    track_search_text,
+                    artist_search_text,
                 )
             )
 
@@ -56,9 +61,14 @@ with connection.cursor() as cursor:
         cursor.executemany(
             """
             INSERT INTO metadata (
-                track_id, ISRC, track_name, artist_name, tag_list, search_document
+                track_id, ISRC, track_name, artist_name, tag_list,
+                search_text, search_document
             )
-                VALUES (%s, %s, %s, %s, %s, to_tsvector('simple', %s))
+                VALUES (
+                    %s, %s, %s, %s, %s, %s,
+                    setweight(to_tsvector('simple', %s), 'A') ||
+                    setweight(to_tsvector('simple', %s), 'B')
+                )
                 ON CONFLICT (track_id) DO NOTHING
             """,
             rows,
@@ -203,7 +213,7 @@ with connection.cursor() as cursor:
         cursor.execute(
             """
             UPDATE metadata AS m
-            SET mpd_occurrences = u.occurrences 
+            SET mpd_occurrences = u.occurrences
             FROM unnest(%s::text[], %s::int[]) AS u(track_id, occurrences)
             WHERE m.track_id = u.track_id
             """, (track_ids, occurrences),
@@ -266,25 +276,81 @@ with connection.cursor() as cursor:
 print(f"{count} combined embeddings inserted")
 connection.commit()
 
-# Build indexes to speed up NN and text search
-with connection.cursor() as cursor:
-    cursor.execute(
+# Build indexes to speed up NN, text search, and popularity ordering
+indexes = [
+    (
+        "combined_embeddings_emb_000_ivfflat_idx",
         """
-        CREATE INDEX combined_embeddings_emb_000_hnsw_idx
-            ON combined_embeddings USING hnsw (emb_000 vector_cosine_ops);
-        CREATE INDEX combined_embeddings_emb_025_hnsw_idx
-            ON combined_embeddings USING hnsw (emb_025 vector_cosine_ops);
-        CREATE INDEX combined_embeddings_emb_050_hnsw_idx
-            ON combined_embeddings USING hnsw (emb_050 vector_cosine_ops);
-        CREATE INDEX combined_embeddings_emb_075_hnsw_idx
-            ON combined_embeddings USING hnsw (emb_075 vector_cosine_ops);
-        CREATE INDEX combined_embeddings_emb_100_hnsw_idx
-            ON combined_embeddings USING hnsw (emb_100 vector_cosine_ops);
-        CREATE INDEX metadata_search_document_gin_idx
-            ON metadata USING gin (search_document);
+        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_000_ivfflat_idx
+            ON combined_embeddings USING ivfflat (emb_000 vector_cosine_ops)
+            WITH (lists = 1215)
+        """,
+    ),
+    (
+        "combined_embeddings_emb_025_ivfflat_idx",
         """
-    )
-print("Created indexes")
+        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_025_ivfflat_idx
+            ON combined_embeddings USING ivfflat (emb_025 vector_cosine_ops)
+            WITH (lists = 1215)
+        """,
+    ),
+    (
+        "combined_embeddings_emb_050_ivfflat_idx",
+        """
+        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_050_ivfflat_idx
+            ON combined_embeddings USING ivfflat (emb_050 vector_cosine_ops)
+            WITH (lists = 1215)
+        """,
+    ),
+    (
+        "combined_embeddings_emb_075_ivfflat_idx",
+        """
+        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_075_ivfflat_idx
+            ON combined_embeddings USING ivfflat (emb_075 vector_cosine_ops)
+            WITH (lists = 1215)
+        """,
+    ),
+    (
+        "combined_embeddings_emb_100_ivfflat_idx",
+        """
+        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_100_ivfflat_idx
+            ON combined_embeddings USING ivfflat (emb_100 vector_cosine_ops)
+            WITH (lists = 1215)
+        """,
+    ),
+    (
+        "metadata_search_document_gin_idx",
+        """
+        CREATE INDEX IF NOT EXISTS metadata_search_document_gin_idx
+            ON metadata USING gin (search_document)
+        """,
+    ),
+    (
+        "metadata_search_text_gin_idx",
+        """
+        CREATE INDEX IF NOT EXISTS metadata_search_text_gin_idx
+            ON metadata USING gin (search_text gin_trgm_ops)
+        """,
+    ),
+    (
+        "metadata_mpd_occurrences_idx",
+        """
+        CREATE INDEX IF NOT EXISTS metadata_mpd_occurrences_idx
+            ON metadata (mpd_occurrences DESC)
+        """,
+    ),
+]
 
+with connection.cursor() as cursor:
+    cursor.execute("SET maintenance_work_mem = '4096MB'")
+    cursor.execute("SET max_parallel_maintenance_workers = 7")
 connection.commit()
+
+for index_name, statement in indexes:
+    with connection.cursor() as cursor:
+        cursor.execute(statement)
+    connection.commit()
+    print(f"Created {index_name}")
+
+print(f"Completion time: {time.time() - START_TIME} seconds")
 connection.close()
