@@ -33,15 +33,14 @@ def get_connection():
 
 
 def get_info_for_visualisation(n, alpha):
-    # Get track_id, track_name, artist_name, combined_embedding for the top n songs
-    connection = get_connection()
-
-    with connection.cursor() as cursor:
+    # Get track_id, track_name, artist_name, isrc, combined_embedding for the top n songs
+    with get_connection() as connection, connection.cursor() as cursor:
         sql = f"""
         SELECT
             m.track_id,
             m.track_name,
             m.artist_name,
+            m.isrc,
             ce.emb_{alpha} AS combined_embedding
         FROM metadata AS m
         JOIN combined_embeddings AS ce
@@ -107,6 +106,7 @@ def get_nearest_neighbours(track_id, alpha, limit=50):
         neighbours AS MATERIALIZED (
             SELECT
                 candidate.track_id,
+                candidate.{embedding} AS combined_embedding,
                 candidate.{embedding} <=> (SELECT embedding FROM seed) AS distance
             FROM combined_embeddings AS candidate
             WHERE EXISTS (SELECT 1 FROM seed)
@@ -118,7 +118,7 @@ def get_nearest_neighbours(track_id, alpha, limit=50):
             metadata.track_name,
             metadata.artist_name,
             metadata.isrc,
-            neighbours.distance
+            neighbours.combined_embedding
         FROM neighbours
         JOIN metadata USING (track_id)
         WHERE neighbours.track_id <> %(track_id)s
