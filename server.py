@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from build_vector_space import build_vector_space, add_additional_points
 from database import search_for_song_by_name, get_nearest_neighbours
 import json
+import requests
 
 app = FastAPI()
 
@@ -92,5 +93,17 @@ def get_true_nearest_neighbours(track_id, n, alpha):
     return json.loads(data.to_json(orient="records", force_ascii=False))
 
 @app.get("/api/preview")  # Gets the audio preview and cover art for a given ISRC
-def get_preview():
-    pass
+def get_preview(isrc):
+    response = requests.get(f"https://api.deezer.com/track/isrc:{isrc}")
+    response = response.json()
+
+    if "error" in response:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    data = {
+        "title": response["title"],
+        "preview_link": response["preview"],
+        "picture_link": response["contributors"][0]["picture_medium"]
+    }
+
+    return data
