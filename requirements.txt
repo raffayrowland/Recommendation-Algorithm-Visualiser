@@ -7,5 +7,6 @@ plotly
 umap-learn
 pandas
 fastapi
+uvicorn
 joblib
 requests

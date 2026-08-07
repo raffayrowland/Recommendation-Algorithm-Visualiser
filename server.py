@@ -1,14 +1,18 @@
+import uvicorn
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from build_vector_space import build_vector_space, add_additional_points
 from database import search_for_song_by_name, get_nearest_neighbours
 import json
 import requests
 
 app = FastAPI()
+app.mount("/frontend", StaticFiles(directory="frontend"))
 
 @app.get("/")  # Returns the main HTML file
 def get_home():
-    pass
+    return FileResponse(f"frontend/index.html")
 
 @app.get("/api/space")  # Fetches / computes JSON of the 3D space for given parameters
 def get_songs(n, alpha):
@@ -42,8 +46,8 @@ def get_songs(n, alpha):
     return json.loads(data.to_json(orient="records", force_ascii=False))
 
 @app.get("/api/search/")  # Searches for a song by name or artist
-def search_song_by_name(query):
-    songs = search_for_song_by_name(query)
+def search_song_by_name(query, n):
+    songs = search_for_song_by_name(query, n)
     songs_json = [
         {
             "track_id": track_id,
@@ -102,8 +106,13 @@ def get_preview(isrc):
 
     data = {
         "title": response["title"],
+        "artist": response["artist"]["name"],
         "preview_link": response["preview"],
         "picture_link": response["contributors"][0]["picture_medium"]
     }
 
     return data
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="127.0.0.1", port=8000)

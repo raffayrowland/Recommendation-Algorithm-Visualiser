@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#050505">
+  <meta name="description" content="Explore a three-dimensional map of music and its nearest neighbours.">
+  <title>Songspace</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="preconnect" href="https://unpkg.com" crossorigin>
+  <link rel="stylesheet" href="/frontend/styles.css">
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <main id="app" aria-label="Songspace music explorer">
+    <canvas id="songspace" aria-label="Interactive three-dimensional song map"></canvas>
+
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Reset Songspace view">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>Songspace</span>
+      </a>
+
+      <div class="search-shell" id="search-shell">
+        <form id="search-form" role="search" autocomplete="off">
+          <i data-lucide="search" aria-hidden="true"></i>
+          <input
+            id="search-input"
+            name="query"
+            type="search"
+            minlength="2"
+            placeholder="Search songs or artists"
+            aria-label="Search songs or artists"
+            aria-controls="search-results"
+            aria-expanded="false"
+          >
+          <span class="search-spinner" aria-hidden="true"></span>
+          <button class="icon-button search-clear" id="search-clear" type="button" aria-label="Clear search" title="Clear search">
+            <i data-lucide="x" aria-hidden="true"></i>
+          </button>
+        </form>
+
+        <section class="search-popover" id="search-popover" aria-label="Search results" hidden>
+          <div class="search-summary">
+            <span>Results</span>
+            <span id="search-count">0 found</span>
+          </div>
+          <div class="search-results" id="search-results" role="listbox"></div>
+          <button class="more-button" id="more-results" type="button">
+            <span>More results</span>
+            <i data-lucide="chevron-down" aria-hidden="true"></i>
+          </button>
+          <p class="search-end" id="search-end" hidden>You have reached the quiet edge of this search.</p>
+        </section>
+      </div>
+
+      <div class="view-switch" aria-label="Camera mode">
+        <button class="view-option is-active" id="map-mode" type="button" aria-pressed="true">
+          <i data-lucide="move" aria-hidden="true"></i>
+          <span>Orbit</span>
+        </button>
+        <button class="view-option" id="explore-mode" type="button" aria-pressed="false">
+          <i data-lucide="navigation" aria-hidden="true"></i>
+          <span>Explore</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="cloud-controls tool-panel" aria-label="Point cloud settings">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Point cloud</span>
+          <strong id="point-count-label">1,000 songs</strong>
+        </div>
+        <i data-lucide="sliders-horizontal" aria-hidden="true"></i>
+      </div>
+
+      <label class="number-field" for="point-count">
+        <span>Points</span>
+        <input id="point-count" type="number" min="100" max="20000" step="100" value="1000" inputmode="numeric">
+      </label>
+      <input class="point-range" id="point-range" type="range" min="100" max="20000" step="100" value="1000" aria-label="Number of points">
+
+      <fieldset class="alpha-field">
+        <legend>Alpha</legend>
+        <div class="alpha-options">
+          <button type="button" data-alpha="000">0</button>
+          <button type="button" data-alpha="025">25</button>
+          <button class="is-active" type="button" data-alpha="050">50</button>
+          <button type="button" data-alpha="075">75</button>
+          <button type="button" data-alpha="100">100</button>
+        </div>
+      </fieldset>
+
+      <button class="load-button" id="load-space" type="button">
+        <i data-lucide="refresh-cw" aria-hidden="true"></i>
+        <span>Load point cloud</span>
+      </button>
+    </section>
+
+    <div class="scene-status" aria-live="polite">
+      <span class="status-dot"></span>
+      <span id="scene-status-text">Loading songspace</span>
+    </div>
+
+    <div class="hover-label" id="hover-label" role="tooltip" hidden>
+      <strong></strong>
+      <span></span>
+    </div>
+
+    <div class="focus-reticle" id="focus-reticle" aria-hidden="true"><span></span></div>
+
+    <aside class="neighbour-panel" id="neighbour-panel" aria-label="Nearest neighbours" hidden>
+      <div class="neighbour-header">
+        <div>
+          <span class="eyebrow">Nearest neighbours</span>
+          <h2 id="selected-title">Selected song</h2>
+          <p id="selected-artist"></p>
+        </div>
+        <button class="icon-button" id="close-panel" type="button" aria-label="Deselect song" title="Deselect song">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="neighbour-meta">
+        <span><i data-lucide="orbit" aria-hidden="true"></i><span id="neighbour-count">0 tracks</span></span>
+        <span id="neighbour-alpha">Alpha 50%</span>
+      </div>
+      <div class="neighbour-list" id="neighbour-list"></div>
+    </aside>
+
+    <section class="player" id="player" aria-label="Song preview" hidden>
+      <div class="cover-wrap">
+        <img id="cover-art" alt="">
+        <div class="cover-fallback" id="cover-fallback" aria-hidden="true">
+          <i data-lucide="disc-3"></i>
+        </div>
+      </div>
+      <div class="player-content">
+        <div class="track-copy">
+          <strong id="player-title">Track title</strong>
+          <span id="player-artist">Artist</span>
+        </div>
+        <div class="player-controls">
+          <button class="play-button" id="play-button" type="button" aria-label="Play preview" title="Play preview" disabled>
+            <i data-lucide="play" aria-hidden="true"></i>
+          </button>
+          <span id="elapsed-time">0:00</span>
+          <input id="preview-progress" type="range" min="0" max="30" step="0.01" value="0" aria-label="Preview position" disabled>
+          <span id="duration-time">0:30</span>
+          <button class="icon-button volume-button" id="volume-button" type="button" aria-label="Mute preview" title="Mute preview">
+            <i data-lucide="volume-2" aria-hidden="true"></i>
+          </button>
+        </div>
+      </div>
+      <audio id="preview-audio" preload="metadata"></audio>
+    </section>
+
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+    <section class="load-state" id="load-state" aria-live="polite">
+      <div class="load-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
+      <strong id="load-title">Mapping 1,000 songs</strong>
+      <span id="load-detail">This can take a moment for a new point cloud.</span>
+      <button id="retry-load" type="button" hidden>Try again</button>
+    </section>
+  </main>
+
+  <noscript>Songspace needs JavaScript to render the music map.</noscript>
+  <script type="module" src="/frontend/app.js"></script>
+</body>
+</html>
