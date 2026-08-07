@@ -52,7 +52,7 @@ const els = {
 
 const COLORS = {
   point: new THREE.Color("#b8b8b4"),
-  neighbour: new THREE.Color("#d8c66f"),
+  neighbour: new THREE.Color("#ffe600"),
   selected: new THREE.Color("#ffffff"),
 };
 
@@ -134,26 +134,30 @@ function initScene() {
         pixelRatio: { value: Math.min(window.devicePixelRatio, 1.75) },
       },
       vertexColors: true,
-      transparent: false,
+      transparent: true,
       depthTest: true,
       depthWrite: true,
       vertexShader: `
         uniform float pixelRatio;
         attribute float pointSize;
+        attribute float pointOpacity;
         varying vec3 pointColor;
+        varying float opacity;
 
         void main() {
           pointColor = color;
+          opacity = pointOpacity;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = pointSize * pixelRatio;
         }
       `,
       fragmentShader: `
         varying vec3 pointColor;
+        varying float opacity;
 
         void main() {
           if (distance(gl_PointCoord, vec2(0.5)) > 0.5) discard;
-          gl_FragColor = vec4(pointColor, 1.0);
+          gl_FragColor = vec4(pointColor, opacity);
         }
       `,
     }),
@@ -197,8 +201,13 @@ function getPointPosition(point) {
   );
 }
 
+function hasPosition(point) {
+  return point && [point.x, point.y, point.z].every(Number.isFinite);
+}
+
 function rebuildCloud() {
   const combined = new Map(state.basePoints.map((point) => [point.track_id, point]));
+  if (hasPosition(state.selected)) combined.set(state.selected.track_id, state.selected);
   for (const point of state.neighbours) combined.set(point.track_id, point);
   state.renderedPoints = [...combined.values()];
   state.pointsById = combined;
@@ -206,6 +215,7 @@ function rebuildCloud() {
   const positions = new Float32Array(state.renderedPoints.length * 3);
   const colors = new Float32Array(state.renderedPoints.length * 3);
   const pointSizes = new Float32Array(state.renderedPoints.length);
+  const pointOpacities = new Float32Array(state.renderedPoints.length);
 
   state.renderedPoints.forEach((point, index) => {
     const position = getPointPosition(point);
@@ -221,6 +231,7 @@ function rebuildCloud() {
   cloud.geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
   cloud.geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
   cloud.geometry.setAttribute("pointSize", new THREE.BufferAttribute(pointSizes, 1));
+  cloud.geometry.setAttribute("pointOpacity", new THREE.BufferAttribute(pointOpacities, 1));
   cloud.geometry.computeBoundingSphere();
   updatePointAppearance();
 }
@@ -228,7 +239,8 @@ function rebuildCloud() {
 function updatePointAppearance() {
   const colorAttribute = cloud.geometry.getAttribute("color");
   const sizeAttribute = cloud.geometry.getAttribute("pointSize");
-  if (!colorAttribute || !sizeAttribute) return;
+  const opacityAttribute = cloud.geometry.getAttribute("pointOpacity");
+  if (!colorAttribute || !sizeAttribute || !opacityAttribute) return;
 
   const baseSize = state.renderedPoints.length > 10000
     ? 2.8
@@ -248,10 +260,12 @@ function updatePointAppearance() {
 
     colorAttribute.setXYZ(index, color.r, color.g, color.b);
     sizeAttribute.setX(index, isSelected ? 6.5 : isHovered ? 6 : isNeighbour ? baseSize + 1 : baseSize);
+    opacityAttribute.setX(index, state.selected && !isSelected && !isNeighbour ? 0.5 : 1);
   });
 
   colorAttribute.needsUpdate = true;
   sizeAttribute.needsUpdate = true;
+  opacityAttribute.needsUpdate = true;
 }
 
 async function api(path, params, signal) {
@@ -383,12 +397,33 @@ function updateCameraTween(now) {
   if (progress >= 1) cameraTween = null;
 }
 
+function loadPreview(point, controller) {
+  if (!point.isrc) {
+    markPreviewUnavailable();
+    return;
+  }
+
+  api("/api/preview", { isrc: point.isrc }, controller.signal)
+    .then((payload) => {
+      if (state.previewController !== controller || state.selected?.track_id !== point.track_id) return;
+      populatePlayer(payload, point);
+    })
+    .catch((error) => {
+      if (error.name === "AbortError") return;
+      markPreviewUnavailable();
+    });
+}
+
 async function selectPoint(point) {
   if (!point || state.isLoadingSpace) return;
   state.selectionController?.abort();
   state.previewController?.abort();
   state.selectionController = new AbortController();
   state.previewController = new AbortController();
+  const selectionController = state.selectionController;
+  const previewController = state.previewController;
+  const requestedTrackId = String(point.track_id);
+  const wasPositioned = hasPosition(point);
 
   state.selected = point;
   state.neighbours = [];
@@ -403,45 +438,49 @@ async function selectPoint(point) {
   renderNeighbourSkeletons();
   resetPlayer(point);
   rebuildCloud();
-  focusCamera(point);
+  if (wasPositioned) focusCamera(point);
   closeSearch();
-  setSceneStatus(`Focusing · ${point.track_name}`);
+  setSceneStatus(wasPositioned ? `Focusing · ${point.track_name}` : `Locating · ${point.track_name}`);
 
-  const neighbourRequest = api(
-    "/api/nn",
-    { track_id: point.track_id, n: state.n, alpha: state.alpha },
-    state.selectionController.signal,
-  );
-  const previewRequest = point.isrc
-    ? api("/api/preview", { isrc: point.isrc }, state.previewController.signal)
-    : Promise.reject(new Error("Preview metadata is unavailable for this song."));
+  if (point.isrc) loadPreview(point, previewController);
 
-  neighbourRequest
-    .then((payload) => {
-      if (state.selected?.track_id !== point.track_id) return;
-      state.neighbours = (Array.isArray(payload) ? payload : []).map(normalizePoint);
-      state.neighbourIds = new Set(state.neighbours.map((item) => item.track_id));
-      rebuildCloud();
-      renderNeighbours();
-      els.neighbourCount.textContent = `${state.neighbours.length} tracks`;
-      setSceneStatus(`${state.neighbours.length} nearest · alpha ${alphaLabel(state.alpha)}`);
-    })
-    .catch((error) => {
-      if (error.name === "AbortError") return;
-      renderNeighbourError(error.message);
-      els.neighbourCount.textContent = "Unavailable";
-      showToast(error.message);
-    });
+  try {
+    const payload = await api(
+      "/api/nn",
+      { track_id: requestedTrackId, n: state.n, alpha: state.alpha },
+      selectionController.signal,
+    );
+    if (state.selectionController !== selectionController || state.selected?.track_id !== requestedTrackId) return;
 
-  previewRequest
-    .then((payload) => {
-      if (state.selected?.track_id !== point.track_id) return;
-      populatePlayer(payload, point);
-    })
-    .catch((error) => {
-      if (error.name === "AbortError") return;
-      markPreviewUnavailable();
-    });
+    const returnedPoints = (Array.isArray(payload) ? payload : []).map(normalizePoint);
+    const positionedSelection = returnedPoints.find((item) => item.track_id === requestedTrackId);
+    if (!wasPositioned && !positionedSelection) {
+      throw new Error("The selected song could not be positioned in the current cloud.");
+    }
+
+    const selectedPoint = positionedSelection || point;
+    state.selected = selectedPoint;
+    state.neighbours = returnedPoints.filter((item) => item.track_id !== requestedTrackId);
+    state.neighbourIds = new Set(state.neighbours.map((item) => item.track_id));
+    els.selectedTitle.textContent = selectedPoint.track_name;
+    els.selectedArtist.textContent = selectedPoint.artist_name;
+    rebuildCloud();
+    if (!wasPositioned) focusCamera(selectedPoint);
+    renderNeighbours();
+    els.neighbourCount.textContent = `${state.neighbours.length} tracks`;
+    setSceneStatus(`${state.neighbours.length} nearest · alpha ${alphaLabel(state.alpha)}`);
+
+    if (!point.isrc) {
+      resetPlayer(selectedPoint);
+      loadPreview(selectedPoint, previewController);
+    }
+  } catch (error) {
+    if (error.name === "AbortError") return;
+    renderNeighbourError(error.message);
+    els.neighbourCount.textContent = "Unavailable";
+    markPreviewUnavailable();
+    showToast(error.message);
+  }
 }
 
 function deselectPoint({ animate = true, preserveCloud = false } = {}) {
@@ -652,12 +691,8 @@ function renderSearchResults(errorMessage = "") {
 function activateSearchItem(index) {
   const item = state.searchItems[index];
   if (!item) return;
-  const point = state.pointsById.get(String(item.track_id));
-  if (point) {
-    selectPoint(point);
-  } else {
-    showToast("This song is outside the current cloud. Load more points to bring it into view.");
-  }
+  const point = state.pointsById.get(String(item.track_id)) || normalizePoint(item);
+  selectPoint(point);
 }
 
 function closeSearch() {

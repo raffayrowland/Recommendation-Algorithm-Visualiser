@@ -53,6 +53,7 @@ def get_info_for_visualisation(n, alpha):
 
     return results
 
+
 def search_for_song_by_name(query, n=5):
     query = normalise_search_text(query)
     if len(query) < 2:
@@ -136,3 +137,23 @@ def get_nearest_neighbours(track_id, alpha, limit=50):
     with get_connection() as connection, connection.cursor() as cursor:
         cursor.execute("SET LOCAL ivfflat.probes = 35")
         return cursor.execute(query, parameters).fetchall()
+
+
+def get_info_single_song(track_id, alpha):
+    embedding_column = sql.Identifier(f"emb_{alpha}")
+    query = sql.SQL(
+        """
+        SELECT
+            m.track_id,
+            m.track_name,
+            m.artist_name,
+            m.isrc,
+            e.{embedding} AS embedding
+        FROM metadata AS m
+        JOIN combined_embeddings AS e USING (track_id)
+        WHERE m.track_id = %(track_id)s
+        """
+    ).format(embedding=embedding_column)
+
+    with get_connection() as connection, connection.cursor() as cursor:
+        return cursor.execute(query, {"track_id": track_id}).fetchone()

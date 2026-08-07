@@ -3,7 +3,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from build_vector_space import build_vector_space, add_additional_points
-from database import search_for_song_by_name, get_nearest_neighbours
+from database import search_for_song_by_name, get_nearest_neighbours, get_info_single_song
 import json
 import requests
 
@@ -78,8 +78,16 @@ def get_true_nearest_neighbours(track_id, n, alpha):
         raise HTTPException(status_code=404, detail="Track not found")
 
     existing_space = build_vector_space(n, alpha)
+    points_to_display = neighbours
+
+    if track_id not in set(existing_space["track_id"]):
+        searched_track = get_info_single_song(track_id, alpha)
+        if searched_track is None:
+            raise HTTPException(status_code=404, detail="Track not found")
+        points_to_display = [searched_track, *neighbours]
+
     neighbour_points = add_additional_points(
-        neighbours, existing_space, n, alpha
+        points_to_display, existing_space, n, alpha
     )
 
     data = neighbour_points[
