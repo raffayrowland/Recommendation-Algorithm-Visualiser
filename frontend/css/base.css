@@ -1,0 +1,90 @@
+:root {
+  color-scheme: dark;
+  --black: #050505;
+  --panel: rgba(15, 15, 15, 0.9);
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --text: #f3f3f1;
+  --muted: #a4a4a0;
+  --subtle: #71716e;
+  --accent: #d8e1de;
+  --danger: #ff8c73;
+  --header-height: 68px;
+  font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--black);
+}
+
+body {
+  color: var(--text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  color: inherit;
+}
+
+button:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+#app,
+#songspace {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#app {
+  isolation: isolate;
+  background: var(--black);
+}
+
+#songspace {
+  z-index: 0;
+  display: block;
+  cursor: grab;
+}
+
+#songspace:active {
+  cursor: grabbing;
+}
+
+body.is-explore #songspace {
+  cursor: crosshair;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

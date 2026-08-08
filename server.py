@@ -116,7 +116,7 @@ def get_preview(isrc):
         "title": response["title"],
         "artist": response["artist"]["name"],
         "preview_link": response["preview"],
-        "picture_link": response["contributors"][0]["picture_medium"]
+        "picture_link": response["album"]["cover_medium"]
     }
 
     return data
