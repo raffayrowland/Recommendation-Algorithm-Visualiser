@@ -1,11 +1,11 @@
 import os
 from itertools import islice
 from datasets import load_dataset
+from psycopg import sql
 import time
 from database import get_connection, normalise_search_text
 from calculate_combined import *
 
-connection = get_connection()
 BATCH_SIZE = 10_000
 START_TIME = time.time()
 
@@ -16,16 +16,52 @@ def batches(items):
         yield batch
 
 os.makedirs("dataset/metadata", exist_ok=True)
-os.makedirs("dataset/users", exist_ok=True)
 os.makedirs("dataset/items", exist_ok=True)
 os.makedirs("dataset/clap", exist_ok=True)
 os.makedirs("dataset/mpd", exist_ok=True)
+os.makedirs("dataset/attributes", exist_ok=True)
+os.makedirs("dataset/lyrics", exist_ok=True)
 
-metadata = load_dataset(
-    "parquet",
-    data_files="dataset/metadata/train-*.parquet",
-    split="train",
-)
+data_sources = {
+    "clap": "dataset/clap/*.parquet",
+    "collab": "dataset/items/*.parquet",
+    "lyric": "dataset/lyrics/*.parquet",
+    "attributes": "dataset/attributes/*.parquet",
+}
+
+def load_embeddings(source):
+    connection = get_connection()
+    dataset = load_dataset(
+        "parquet",
+        data_files=data_sources[source],
+        split="train",
+    )
+
+    query = sql.SQL("""
+    INSERT INTO track_embeddings (track_id, {col})
+    VALUES (%s, %s)
+    ON CONFLICT (track_id) DO UPDATE SET {col} = EXCLUDED.{col}
+    """).format(col=sql.Identifier(source),)
+
+    count = 0
+
+    with connection.transaction(), connection.cursor() as cursor:
+        for batch in batches(dataset):
+            rows = [(item["id"], item["embedding"]) for item in batch]
+
+            cursor.executemany(query, rows)
+
+            count += len(rows)
+            print(f"\r{count} {source} rows inserted" if count % 10000 == 0 else "", end="")
+
+        print(f"\r{count} {source} rows inserted\n")
+
+
+for embedding_column, _ in data_sources.items():
+    load_embeddings(embedding_column)
+
+
+exit()
 
 # Insert all metadata rows
 count = 0
@@ -60,7 +96,7 @@ with connection.cursor() as cursor:
 
         cursor.executemany(
             """
-            INSERT INTO metadata (
+            INSERT INTO tracks (
                 track_id, ISRC, track_name, artist_name, tag_list,
                 search_text, search_document
             )
@@ -81,67 +117,6 @@ with connection.cursor() as cursor:
 print(f"\r{count} metadata rows inserted")
 connection.commit()
 
-clap_embeddings = load_dataset(
-    "parquet",
-    data_files="dataset/clap/train-*.parquet",
-    split="train",
-)
-
-# Insert all CLAP embeddings
-count = 0
-with connection.cursor() as cursor:
-    for batch in batches(clap_embeddings):
-        rows = [(item["id"], item["embedding"], item["id"]) for item in batch]
-
-        cursor.executemany(
-            """
-            INSERT INTO clap_embeddings (track_id, embedding)
-                SELECT %s, %s
-                WHERE EXISTS (
-                    SELECT 1 FROM metadata WHERE track_id = %s
-                )
-                ON CONFLICT (track_id) DO NOTHING
-            """,
-            rows,
-        )
-
-        count += len(rows)
-        if count % 10000 == 0:
-            print(f"\r{count} clap rows inserted", end="")
-
-print(f"\r{count} clap rows inserted")
-connection.commit()
-
-item_embeddings = load_dataset(
-    "parquet",
-    data_files="dataset/items/item-*.parquet",
-    split="train",
-)
-
-# Insert all cf-bpr embeddings
-count = 0
-with connection.cursor() as cursor:
-    for batch in batches(item_embeddings):
-        rows = [(item["id"], item["embedding"], item["id"]) for item in batch]
-
-        cursor.executemany(
-            """
-            INSERT INTO cf_bpr (track_id, embedding)
-                SELECT %s, %s
-                WHERE EXISTS (
-                    SELECT 1 FROM metadata WHERE track_id = %s
-                )
-                ON CONFLICT (track_id) DO NOTHING
-            """,
-            rows,
-        )
-
-        count += len(rows)
-        if count % 10000 == 0:
-            print(f"\r{count} cfbpr rows inserted", end="")
-
-print(f"\r{count} cfbpr rows inserted")
-connection.commit()
 
 # Delete rows that do not appear in all three databases
 with connection.cursor() as cursor:
