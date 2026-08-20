@@ -4,7 +4,6 @@ from datasets import load_dataset
 from psycopg import sql
 import time
 from database import get_connection, normalise_search_text
-from calculate_combined import *
 
 BATCH_SIZE = 10_000
 START_TIME = time.time()
@@ -184,142 +183,31 @@ def update_mpd_counts():
 
         connection.commit()
 
-#for embedding_column, _ in data_sources.items():
-#    load_embeddings(embedding_column)
-#
-#insert_metadata()
-#
+
+def insert_combined_embeddings():
+    with get_connection() as connection, connection.cursor() as cursor:
+        all_track_ids = cursor.execute("SELECT track_id FROM tracks").fetchall()
+
+        for batch in batches(all_track_ids):
+            track_ids = [track_id[0] for track_id in batch]
+
+            embeddings = cursor.execute(
+                """
+                SELECT track_id, collab, clap, lyric, attributes
+                FROM track_embeddings
+                WHERE track_id = %s
+                """, (track_ids,)
+            ).fetchall()
+
+for embedding_column, _ in data_sources.items():
+    load_embeddings(embedding_column)
+
+insert_metadata()
+
 delete_incomplete_data()
 
-# update_mpd_counts()
+update_mpd_counts()
 
-exit()
+# TODO - Compute combined embeddings
 
-# Calculate and insert combined embeddings for alphas 0, 0.25, 0.5, 0.75, and 1
-count = 0
-with connection.cursor() as cursor:
-    all_track_ids = cursor.execute("SELECT track_id FROM metadata").fetchall()
-
-    for batch in batches(all_track_ids):
-        track_ids = [track_id[0] for track_id in batch]
-
-        cfbpr_clap = cursor.execute(
-            """
-            SELECT c.track_id,
-                   c.embedding AS clap_embedding,
-                   b.embedding AS cf_bpr_embedding
-            FROM clap_embeddings AS c
-                     JOIN cf_bpr AS b ON b.track_id = c.track_id
-            WHERE c.track_id = ANY (%s)
-            """,
-            (track_ids,),
-        ).fetchall()
-
-        rows = []
-        for track_id, clap_embedding, cfbpr_embedding in cfbpr_clap:
-            clap = clap_embedding.to_numpy()
-            cfbpr = cfbpr_embedding.to_numpy()
-            cfbpr, clap = normalise_vectors(cfbpr, clap)
-
-            rows.append((
-                track_id,
-                calculate_combined(cfbpr, clap, 0),
-                calculate_combined(cfbpr, clap, 0.25),
-                calculate_combined(cfbpr, clap, 0.5),
-                calculate_combined(cfbpr, clap, 0.75),
-                calculate_combined(cfbpr, clap, 1),
-            ))
-
-        cursor.executemany(
-            """
-            INSERT INTO combined_embeddings (track_id, emb_000, emb_025, emb_050, emb_075, emb_100)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (track_id) DO NOTHING
-            """, rows
-        )
-        count += len(rows)
-
-        if count % 10000 == 0:
-            print(f"{count} combined embeddings inserted\r", end="")
-
-print(f"{count} combined embeddings inserted")
-connection.commit()
-
-# Build indexes to speed up NN, text search, and popularity ordering
-indexes = [
-    (
-        "combined_embeddings_emb_000_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_000_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_000 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "combined_embeddings_emb_025_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_025_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_025 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "combined_embeddings_emb_050_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_050_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_050 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "combined_embeddings_emb_075_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_075_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_075 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "combined_embeddings_emb_100_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_100_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_100 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "metadata_search_document_gin_idx",
-        """
-        CREATE INDEX IF NOT EXISTS metadata_search_document_gin_idx
-            ON metadata USING gin (search_document)
-        """,
-    ),
-    (
-        "metadata_search_text_gin_idx",
-        """
-        CREATE INDEX IF NOT EXISTS metadata_search_text_gin_idx
-            ON metadata USING gin (search_text gin_trgm_ops)
-        """,
-    ),
-    (
-        "metadata_mpd_occurrences_idx",
-        """
-        CREATE INDEX IF NOT EXISTS metadata_mpd_occurrences_idx
-            ON metadata (mpd_occurrences DESC)
-        """,
-    ),
-]
-
-with connection.cursor() as cursor:
-    cursor.execute("SET maintenance_work_mem = '4096MB'")
-    cursor.execute("SET max_parallel_maintenance_workers = 7")
-connection.commit()
-
-for index_name, statement in indexes:
-    with connection.cursor() as cursor:
-        cursor.execute(statement)
-    connection.commit()
-    print(f"Created {index_name}")
-
-print(f"Completion time: {time.time() - START_TIME} seconds")
-connection.close()
+# TODO - Add database indexes
