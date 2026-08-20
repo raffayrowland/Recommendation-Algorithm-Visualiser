@@ -10,3 +10,4 @@ fastapi
 uvicorn
 joblib
 requests
+torch
