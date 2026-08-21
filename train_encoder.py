@@ -1,6 +1,7 @@
 from database import get_connection
 from itertools import islice
 import random
+import os
 import numpy as np
 import torch
 from torch import nn
@@ -11,10 +12,12 @@ COLLAB_WEIGHT =    0.25
 CLAP_WEIGHT =      0.25
 ATTRIBUTE_WEIGHT = 0.25
 
-BATCH_SIZE = 128
+BATCH_SIZE = 256
 EPOCHS = 3
 
 connection = get_connection()
+
+os.makedirs("models", exist_ok=True)
 
 # Batch generator
 def batches(items, batch_size=BATCH_SIZE):
@@ -111,14 +114,14 @@ class MultimodalAutoencoder(nn.Module):
 
         return latent, collab_recon, clap_recon, lyric_recon, attribute_recon
 
-# Get a sample of 100,000 random track_ids
+# Get a sample of 200,000 random track_ids
 with connection.cursor() as cursor:
     cursor.execute(
         """
         SELECT track_id
         FROM track_embeddings
-        ORDER BY random()
-        LIMIT 100000
+        ORDER BY md5(track_id), track_id
+        LIMIT 200000
         """
     )
     track_id_rows = cursor.fetchall()
@@ -133,14 +136,24 @@ val = track_ids[int(samples * 0.95):]
 model = MultimodalAutoencoder()
 model.train()
 
-optimizer = torch.optim.AdamW(
+optimiser = torch.optim.AdamW(
     model.parameters(),
     lr=0.001,
     weight_decay=0.00001,
 )
 
+best_val_loss = float("inf")
+
 for epoch in range(EPOCHS):
     batch_number = 0
+
+    total_train_loss = 0
+    total_train_collab = 0
+    total_train_clap = 0
+    total_train_lyric = 0
+    total_train_attribute = 0
+    total_train_examples = 0
+
     random.shuffle(train)
 
     for batch in batches(train):
@@ -154,7 +167,7 @@ for epoch in range(EPOCHS):
         lyric_tensor = torch.from_numpy(lyric_batch)
         attribute_tensor = torch.from_numpy(attribute_batch)
 
-        optimizer.zero_grad(set_to_none=True)
+        optimiser.zero_grad(set_to_none=True)
 
         (
             latent,
@@ -181,10 +194,20 @@ for epoch in range(EPOCHS):
             ATTRIBUTE_WEIGHT * attribute_loss
         )
 
-        total_loss.backward()
-        optimizer.step()
+        current_batch_size = collab_tensor.shape[0]
 
-        if batch_number % 10 == 0:
+        total_train_loss += total_loss.item() * current_batch_size
+        total_train_collab += collab_loss.item() * current_batch_size
+        total_train_clap += clap_loss.item() * current_batch_size
+        total_train_lyric += lyric_loss.item() * current_batch_size
+        total_train_attribute += attribute_loss.item() * current_batch_size
+
+        total_train_examples += current_batch_size
+
+        total_loss.backward()
+        optimiser.step()
+
+        if batch_number % 50 == 0:
             print(
                 f"Batch {batch_number}: "
                 f"total={total_loss.item():.4f}, "
@@ -195,6 +218,12 @@ for epoch in range(EPOCHS):
             )
 
         batch_number += 1
+
+    avg_train_loss = total_train_loss / total_train_examples
+    avg_train_collab = total_train_collab / total_train_examples
+    avg_train_clap = total_train_clap / total_train_examples
+    avg_train_lyric = total_train_lyric / total_train_examples
+    avg_train_attribute = total_train_attribute / total_train_examples
 
     model.eval()
     total_val_loss = 0
@@ -256,12 +285,28 @@ for epoch in range(EPOCHS):
         avg_val_attribute = total_val_attribute / total_val_examples
 
         print(
-            f"EPOCH: {epoch + 1}, "
-            f"total={avg_val_loss:.4f}, "
+            f"\nEPOCH: {epoch + 1}, \n"
+            f"Train: total={avg_train_loss:.4f}, "
+            f"collab={avg_train_collab:.4f}, "
+            f"clap={avg_train_clap:.4f}, "
+            f"lyric={avg_train_lyric:.4f}, "
+            f"attribute={avg_train_attribute:.4f}\n"
+            f"Val:   total={avg_val_loss:.4f}, "
             f"collab={avg_val_collab:.4f}, "
             f"clap={avg_val_clap:.4f}, "
             f"lyric={avg_val_lyric:.4f}, "
-            f"attribute={avg_val_attribute:.4f}"
+            f"attribute={avg_val_attribute:.4f}\n"
+        )
+
+    if avg_val_loss < best_val_loss:
+        best_val_loss = avg_val_loss
+        torch.save(
+            {
+                "epoch": epoch + 1,
+                "model_state_dict": model.state_dict(),
+                "optimiser_state_dict": optimiser.state_dict(),
+                "validation_loss": avg_val_loss,
+            }, "models/linear_autoencoder_checkpoint.pt"
         )
 
     model.train()
