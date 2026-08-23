@@ -2,16 +2,16 @@ from itertools import islice
 import os
 import numpy as np
 import torch
-from torch import nn
 import torch.nn.functional as F
+from model import MultimodalAutoencoder
 
-LYRIC_WEIGHT =     0.25
-COLLAB_WEIGHT =    0.25
+LYRIC_WEIGHT =     0.20
+COLLAB_WEIGHT =    0.50
 CLAP_WEIGHT =      0.25
-ATTRIBUTE_WEIGHT = 0.25
+ATTRIBUTE_WEIGHT = 0.05
 
 BATCH_SIZE = 512
-EPOCHS = 2
+EPOCHS = 3
 LOSSES = ["total", "collab", "clap", "lyric", "attribute", "examples"]  # Losses recorded during training
 
 os.makedirs("models", exist_ok=True)
@@ -69,44 +69,6 @@ def record_batch_losses(clb_tensor, clp_tensor, lrc_tensor, att_tensor, totals):
 
     totals["examples"] += batch_size
     return losses
-
-# Multimodal autoencoder
-class MultimodalAutoencoder(nn.Module):
-    def __init__(self):
-        super().__init__()
-
-        # Projector layers
-        self.collab_projector = nn.Linear(128, 128)
-        self.clap_projector = nn.Linear(512, 128)
-        self.lyric_projector = nn.Linear(1024, 128)
-        self.attribute_projector = nn.Linear(1024, 128)
-
-        # Fusion layer
-        self.fusion = nn.Linear(512, 256)
-
-        # Decoders
-        self.collab_decoder = nn.Linear(256, 128)
-        self.clap_decoder = nn.Linear(256, 512)
-        self.lyric_decoder = nn.Linear(256, 1024)
-        self.attribute_decoder = nn.Linear(256, 1024)
-
-    def forward(self, collab, clap, lyric, attribute):
-        collab_proj = self.collab_projector(collab)
-        clap_proj = self.clap_projector(clap)
-        lyric_proj = self.lyric_projector(lyric)
-        attribute_proj = self.attribute_projector(attribute)
-
-        combined = torch.cat((collab_proj, clap_proj, lyric_proj, attribute_proj), dim=1)
-
-        latent = self.fusion(combined)
-        latent = F.normalize(latent, p=2, dim=1)
-
-        collab_recon = self.collab_decoder(latent)
-        clap_recon = self.clap_decoder(latent)
-        lyric_recon = self.lyric_decoder(latent)
-        attribute_recon = self.attribute_decoder(latent)
-
-        return latent, collab_recon, clap_recon, lyric_recon, attribute_recon
 
 
 # Load the npy files containing the embeddings

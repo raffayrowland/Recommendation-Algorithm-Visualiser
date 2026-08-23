@@ -1,9 +1,11 @@
 import os
 from itertools import islice
 from datasets import load_dataset
+import numpy as np
 from psycopg import sql
 import time
 from database import get_connection, normalise_search_text
+from calculate_combined import get_embeddings
 
 BATCH_SIZE = 10_000
 START_TIME = time.time()
@@ -186,27 +188,70 @@ def update_mpd_counts():
 
 def insert_combined_embeddings():
     with get_connection() as connection, connection.cursor() as cursor:
-        all_track_ids = cursor.execute("SELECT track_id FROM tracks").fetchall()
+        track_ids = cursor.execute(
+            """
+            SELECT track_id
+            FROM track_embeddings
+            """
+        ).fetchall()
 
-        for batch in batches(all_track_ids):
-            track_ids = [track_id[0] for track_id in batch]
-
-            embeddings = cursor.execute(
+        count = 0
+        for batch in batches(track_ids):
+            ids = [row[0] for row in batch]
+            rows = cursor.execute(
                 """
                 SELECT track_id, collab, clap, lyric, attributes
                 FROM track_embeddings
-                WHERE track_id = %s
-                """, (track_ids,)
+                WHERE track_id = ANY(%s)
+                """, (ids,)
             ).fetchall()
 
-for embedding_column, _ in data_sources.items():
-    load_embeddings(embedding_column)
+            track_ids = [row[0] for row in rows]
+            collabs = np.stack([row[1].to_numpy() for row in rows]).astype(
+                np.float32, copy=False
+            )
+            claps = np.stack([row[2].to_numpy() for row in rows]).astype(
+                np.float32, copy=False
+            )
+            lyrics = np.stack([row[3].to_numpy() for row in rows]).astype(
+                np.float32, copy=False
+            )
+            attributes = np.stack([row[4].to_numpy() for row in rows]).astype(
+                np.float32, copy=False
+            )
 
-insert_metadata()
+            for modality in (collabs, claps, lyrics, attributes):
+                norms = np.linalg.norm(modality, axis=1, keepdims=True)
+                modality /= np.maximum(norms, 1e-12)
 
-delete_incomplete_data()
+            embeddings = get_embeddings(collabs, claps, lyrics, attributes)
+            track_id_embedding = list(zip(track_ids, embeddings))
+            count += len(track_id_embedding)
 
-update_mpd_counts()
+            with connection.cursor() as insert_cursor:
+                insert_cursor.executemany(
+                    """
+                    INSERT INTO combined_embedding (track_id, embedding)
+                    VALUES (%s, %s)
+                    ON CONFLICT (track_id) DO UPDATE SET embedding = EXCLUDED.embedding
+                    """, track_id_embedding
+                )
+
+            print(f"\rInserted {count} rows", end="")
+
+        connection.commit()
+
+
+# for embedding_column, _ in data_sources.items():
+#     load_embeddings(embedding_column)
+
+# insert_metadata()
+
+# delete_incomplete_data()
+
+# update_mpd_counts()
+
+insert_combined_embeddings()
 
 # TODO - Compute combined embeddings
 

@@ -1,7 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-DROP TABLE IF EXISTS tracks, track_embeddings;
+DROP TABLE IF EXISTS tracks, track_embeddings, combined_embedding;
 
 CREATE TABLE tracks (
     track_id VARCHAR(22) PRIMARY KEY,
@@ -23,5 +23,5 @@ CREATE TABLE track_embeddings (
 
 CREATE TABLE combined_embedding (
     track_id VARCHAR(22) PRIMARY KEY,
-    embedding vector(640)
+    embedding vector(256)
 );
