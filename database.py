@@ -32,24 +32,22 @@ def get_connection():
     return connection
 
 
-def get_info_for_visualisation(n, alpha):
+def get_info_for_visualisation(n):
     # Get track_id, track_name, artist_name, isrc, combined_embedding for the top n songs
     with get_connection() as connection, connection.cursor() as cursor:
-        sql = f"""
+        results = cursor.execute("""
         SELECT
-            m.track_id,
-            m.track_name,
-            m.artist_name,
-            m.isrc,
-            ce.emb_{alpha} AS combined_embedding
-        FROM metadata AS m
-        JOIN combined_embeddings AS ce
-            ON ce.track_id = m.track_id
-        ORDER BY m.mpd_occurrences DESC
+            t.track_id,
+            t.track_name,
+            t.artist_name,
+            t.isrc,
+            ce.embedding AS combined_embedding
+        FROM tracks AS t
+        JOIN combined_embedding AS ce
+            ON ce.track_id = t.track_id
+        ORDER BY t.mpd_occurrences DESC
         LIMIT %s
-        """
-        cursor.execute(sql, (n,))
-        results = cursor.fetchall()
+        """, (n,)).fetchall()
 
     return results
 
@@ -69,24 +67,24 @@ def search_for_song_by_name(query, n=5):
                     plainto_tsquery('simple', %(query)s) AS document
             )
             SELECT
-                m.track_id,
-                m.track_name,
-                m.artist_name
-            FROM metadata AS m
+                t.track_id,
+                t.track_name,
+                t.artist_name
+            FROM tracks AS t
             CROSS JOIN search_query AS q
             WHERE
-                m.search_document @@ q.document
-                OR m.search_text %% q.text
-                OR q.text <%% m.search_text
+                t.search_document @@ q.document
+                OR t.search_text %% q.text
+                OR q.text <%% t.search_text
             ORDER BY
                 CASE
-                    WHEN m.search_document @@ q.document
-                        THEN ts_rank_cd(m.search_document, q.document)
+                    WHEN t.search_document @@ q.document
+                        THEN ts_rank_cd(t.search_document, q.document)
                     ELSE 0
                 END DESC,
-                strict_word_similarity(q.text, m.search_text) DESC,
-                m.mpd_occurrences DESC,
-                m.track_id
+                strict_word_similarity(q.text, t.search_text) DESC,
+                t.mpd_occurrences DESC,
+                t.track_id
             LIMIT %(limit)s
             """,
             {"query": query, "limit": limit},
@@ -95,65 +93,63 @@ def search_for_song_by_name(query, n=5):
     return results
 
 
-def get_nearest_neighbours(track_id, alpha, limit=50):
-    embedding_column = sql.Identifier(f"emb_{alpha}")
+def get_nearest_neighbours(track_id, limit=50):
     query = sql.SQL(
         """
         WITH seed AS MATERIALIZED (
-            SELECT {embedding} AS embedding
-            FROM combined_embeddings
+            SELECT embedding
+            FROM combined_embedding
             WHERE track_id = %(track_id)s
         ),
         neighbours AS MATERIALIZED (
             SELECT
                 candidate.track_id,
-                candidate.{embedding} AS combined_embedding,
-                candidate.{embedding} <=> (SELECT embedding FROM seed) AS distance
-            FROM combined_embeddings AS candidate
-            WHERE EXISTS (SELECT 1 FROM seed)
-            ORDER BY distance
-            LIMIT %(candidate_limit)s
+                candidate.embedding AS combined_embedding,
+                candidate.embedding <=> seed.embedding AS distance
+            FROM seed
+            CROSS JOIN LATERAL (
+                SELECT
+                    indexed_candidate.track_id,
+                    indexed_candidate.embedding
+                FROM combined_embedding AS indexed_candidate
+                ORDER BY indexed_candidate.embedding <=> seed.embedding
+                LIMIT %(candidate_limit)s
+            ) AS candidate
         )
         SELECT
             neighbours.track_id,
-            metadata.track_name,
-            metadata.artist_name,
-            metadata.isrc,
+            tracks.track_name,
+            tracks.artist_name,
+            tracks.isrc,
             neighbours.combined_embedding
         FROM neighbours
-        JOIN metadata USING (track_id)
+        JOIN tracks USING (track_id)
         WHERE neighbours.track_id <> %(track_id)s
         ORDER BY neighbours.distance
         LIMIT %(limit)s
         """
-    ).format(embedding=embedding_column)
-
-    parameters = {
-        "track_id": track_id,
-        "candidate_limit": limit + 1,
-        "limit": limit,
-    }
-
+    )
     with get_connection() as connection, connection.cursor() as cursor:
-        cursor.execute("SET LOCAL ivfflat.probes = 35")
+        parameters = {
+            "track_id": track_id,
+            "candidate_limit": limit + 1,
+            "limit": limit,
+        }
+        cursor.execute("SET LOCAL hnsw.ef_search = 100")
         return cursor.execute(query, parameters).fetchall()
 
 
-def get_info_single_song(track_id, alpha):
-    embedding_column = sql.Identifier(f"emb_{alpha}")
-    query = sql.SQL(
-        """
-        SELECT
-            m.track_id,
-            m.track_name,
-            m.artist_name,
-            m.isrc,
-            e.{embedding} AS embedding
-        FROM metadata AS m
-        JOIN combined_embeddings AS e USING (track_id)
-        WHERE m.track_id = %(track_id)s
-        """
-    ).format(embedding=embedding_column)
-
+def get_info_single_song(track_id):
     with get_connection() as connection, connection.cursor() as cursor:
-        return cursor.execute(query, {"track_id": track_id}).fetchone()
+        return cursor.execute(
+            """
+            SELECT
+                t.track_id,
+                t.track_name,
+                t.artist_name,
+                t.isrc,
+                e.embedding AS embedding
+            FROM tracks AS t
+            JOIN combined_embedding AS e USING (track_id)
+            WHERE t.track_id = %(track_id)s
+        """, {"track_id": track_id}).fetchone()

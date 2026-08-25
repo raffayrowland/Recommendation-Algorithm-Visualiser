@@ -89,17 +89,6 @@
       </label>
       <input class="point-range" id="point-range" type="range" min="100" max="20000" step="100" value="1000" aria-label="Number of points">
 
-      <fieldset class="alpha-field">
-        <legend>Alpha</legend>
-        <div class="alpha-options">
-          <button type="button" data-alpha="000">0</button>
-          <button type="button" data-alpha="025">25</button>
-          <button class="is-active" type="button" data-alpha="050">50</button>
-          <button type="button" data-alpha="075">75</button>
-          <button type="button" data-alpha="100">100</button>
-        </div>
-      </fieldset>
-
       <button class="load-button" id="load-space" type="button">
         <i data-lucide="refresh-cw" aria-hidden="true"></i>
         <span>Load point cloud</span>
@@ -131,7 +120,6 @@
       </div>
       <div class="neighbour-meta">
         <span><i data-lucide="orbit" aria-hidden="true"></i><span id="neighbour-count">0 tracks</span></span>
-        <span id="neighbour-alpha">Alpha 50%</span>
       </div>
       <div class="neighbour-list" id="neighbour-list"></div>
     </aside>

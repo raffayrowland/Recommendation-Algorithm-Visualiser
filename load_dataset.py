@@ -242,17 +242,29 @@ def insert_combined_embeddings():
         connection.commit()
 
 
-# for embedding_column, _ in data_sources.items():
-#     load_embeddings(embedding_column)
+def build_index():
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute("SET LOCAL maintenance_work_mem = '6GB'")
+        cursor.execute("SET LOCAL max_parallel_maintenance_workers = 8")
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS combined_embedding_hnsw_cosine_idx
+        ON combined_embedding
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64);
+        
+        ANALYZE combined_embedding;
+        """)
 
-# insert_metadata()
 
-# delete_incomplete_data()
+for embedding_column, _ in data_sources.items():
+    load_embeddings(embedding_column)
 
-# update_mpd_counts()
+insert_metadata()
+
+delete_incomplete_data()
+
+update_mpd_counts()
 
 insert_combined_embeddings()
 
-# TODO - Compute combined embeddings
-
-# TODO - Add database indexes
+build_index()

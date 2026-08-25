@@ -6,15 +6,15 @@ import os
 from database import get_info_for_visualisation
 
 
-def build_vector_space(n, alpha):
-    os.makedirs(f"spaces/{alpha}/{n}", exist_ok=True)
-    points_path = f"spaces/{alpha}/{n}/points.pkl"
-    reducer_path = f"spaces/{alpha}/{n}/reducer.pkl"
+def build_vector_space(n):
+    os.makedirs(f"spaces/{n}", exist_ok=True)
+    points_path = f"spaces/{n}/points.pkl"
+    reducer_path = f"spaces/{n}/reducer.pkl"
 
     if os.path.exists(points_path):
         return pd.read_pickle(points_path)
 
-    points = get_info_for_visualisation(n, alpha)
+    points = get_info_for_visualisation(n)
 
     track_ids, track_names, artist_names, isrcs, combined_embeddings = map(
         list, zip(*points)
@@ -49,8 +49,8 @@ def build_vector_space(n, alpha):
     return songs_and_embeddings
 
 
-def add_additional_points(points, existing_space, n, alpha):
-    reducer_path = f"spaces/{alpha}/{n}/reducer.pkl"
+def add_additional_points(points, existing_space, n):
+    reducer_path = f"spaces/{n}/reducer.pkl"
 
     neighbour_ids = [point[0] for point in points]
     existing_ids = set(existing_space["track_id"])

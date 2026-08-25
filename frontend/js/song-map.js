@@ -43,7 +43,6 @@ export function createSongMap({ canvas, hoverLabel, hoverTitle, hoverArtist, onP
   const renderer = new THREE.WebGLRenderer({
     canvas,
     antialias: true,
-    alpha: false,
     powerPreference: "high-performance",
   });
   renderer.setClearColor(0x050505, 1);

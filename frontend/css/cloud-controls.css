@@ -38,7 +38,6 @@
 }
 
 .eyebrow,
-.alpha-field legend,
 .number-field > span {
   color: var(--muted);
   font-size: 10px;
@@ -117,55 +116,6 @@
   background: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
   cursor: pointer;
-}
-
-.alpha-field {
-  min-width: 0;
-  margin: 0 0 14px;
-  padding: 0;
-  border: 0;
-}
-
-.alpha-field legend {
-  margin-bottom: 8px;
-}
-
-.alpha-options {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-
-.alpha-options button {
-  height: 29px;
-  padding: 0;
-  border: 0;
-  border-right: 1px solid var(--line);
-  color: var(--muted);
-  background: #121212;
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  cursor: pointer;
-}
-
-.alpha-options button::after {
-  content: "%";
-}
-
-.alpha-options button:last-child {
-  border-right: 0;
-}
-
-.alpha-options button:hover {
-  color: var(--text);
-  background: #1b1b1b;
-}
-
-.alpha-options button.is-active {
-  color: #111;
-  background: var(--accent);
 }
 
 .load-button {
@@ -376,9 +326,5 @@ body.is-explore .cloud-controls:hover {
 
   .point-range {
     margin-bottom: 7px;
-  }
-
-  .alpha-field {
-    margin-bottom: 8px;
   }
 }

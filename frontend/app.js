@@ -7,8 +7,6 @@ import { createSongMap } from "./js/song-map.js";
 const state = {
   pointCount: 10000,
   loadedPointCount: 0,
-  alpha: "075",
-  draftAlpha: "075",
   neighbours: [],
   selected: null,
   isLoadingSpace: false,
@@ -37,7 +35,6 @@ async function loadSpace() {
   if (state.isLoadingSpace) return;
 
   const pointCount = clampPointCount(els.pointCount.value);
-  const alpha = state.draftAlpha;
   state.isLoadingSpace = true;
 
   els.loadSpace.classList.add("is-loading");
@@ -51,20 +48,19 @@ async function loadSpace() {
   deselectPoint({ animate: false, preserveCloud: true });
 
   try {
-    const payload = await getJson("/api/space", { n: pointCount, alpha });
+    const payload = await getJson("/api/space", { n: pointCount });
     const points = Array.isArray(payload) ? payload.map(normalizePoint) : [];
     if (!points.length) throw new Error("The server returned an empty point cloud.");
 
     state.pointCount = pointCount;
     state.loadedPointCount = points.length;
-    state.alpha = alpha;
     state.neighbours = [];
     songMap.setPoints(points);
     songMap.resetCamera(false);
 
     document.body.classList.add("has-cloud");
     els.pointCountLabel.textContent = `${formatNumber(points.length)} songs`;
-    setSceneStatus(`${formatNumber(points.length)} points · alpha ${alphaLabel(alpha)}`);
+    setSceneStatus(`${formatNumber(points.length)} points`);
   } catch (error) {
     els.loadState.classList.add("has-error");
     els.loadTitle.textContent = "Songspace could not be loaded";
@@ -93,7 +89,6 @@ async function selectPoint(point) {
   els.neighbourPanel.hidden = false;
   els.selectedTitle.textContent = point.track_name;
   els.selectedArtist.textContent = point.artist_name;
-  els.neighbourAlpha.textContent = `Alpha ${alphaLabel(state.alpha)}`;
   els.neighbourCount.textContent = "Finding tracks";
   renderNeighbourSkeletons();
 
@@ -109,7 +104,7 @@ async function selectPoint(point) {
   try {
     const payload = await getJson(
       "/api/nn",
-      { track_id: trackId, n: state.pointCount, alpha: state.alpha },
+      { track_id: trackId, n: state.pointCount },
       controller.signal,
     );
     if (state.selectionController !== controller || state.selected?.track_id !== trackId) return;
@@ -130,7 +125,7 @@ async function selectPoint(point) {
     songMap.setSelection(selectedPoint, state.neighbours);
     if (!wasPositioned) songMap.focus(selectedPoint);
     renderNeighbours();
-    setSceneStatus(`${state.neighbours.length} nearest · alpha ${alphaLabel(state.alpha)}`);
+    setSceneStatus(`${state.neighbours.length} nearest`);
 
     if (!point.isrc) {
       player.reset(selectedPoint);
@@ -157,7 +152,7 @@ function deselectPoint({ animate = true, preserveCloud = false } = {}) {
   player.hide();
   songMap.clearSelection({ rebuildCloud: !preserveCloud });
   if (animate) songMap.resetCamera(true);
-  setSceneStatus(`${formatNumber(state.loadedPointCount)} points · alpha ${alphaLabel(state.alpha)}`);
+  setSceneStatus(`${formatNumber(state.loadedPointCount)} points`);
 }
 
 function renderNeighbourSkeletons() {
@@ -231,9 +226,9 @@ function setCameraMode(mode) {
   if (isExplore) {
     setSceneStatus("Explore camera active");
   } else if (state.selected) {
-    setSceneStatus(`${state.neighbours.length} nearest · alpha ${alphaLabel(state.alpha)}`);
+    setSceneStatus(`${state.neighbours.length} nearest`);
   } else {
-    setSceneStatus(`${formatNumber(state.loadedPointCount)} points · alpha ${alphaLabel(state.alpha)}`);
+    setSceneStatus(`${formatNumber(state.loadedPointCount)} points`);
   }
 }
 
@@ -248,10 +243,6 @@ function showToast(message) {
 
 function setSceneStatus(message) {
   els.sceneStatus.textContent = message;
-}
-
-function alphaLabel(alpha) {
-  return `${Number.parseInt(alpha, 10)}%`;
 }
 
 function formatNumber(number) {
@@ -272,15 +263,6 @@ function bindControls() {
     if (event.key !== "Enter") return;
     syncPointControls(els.pointCount.value);
     loadSpace();
-  });
-
-  els.alphaButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      state.draftAlpha = button.dataset.alpha;
-      els.alphaButtons.forEach((candidate) => {
-        candidate.classList.toggle("is-active", candidate === button);
-      });
-    });
   });
 
   els.loadSpace.addEventListener("click", loadSpace);
