@@ -62,29 +62,38 @@ def search_for_song_by_name(query, n=5):
         results = cursor.execute(
             """
             WITH search_query AS (
+                SELECT %(query)s::TEXT AS text
+            ),
+            candidates AS MATERIALIZED (
                 SELECT
-                    %(query)s::TEXT AS text,
-                    plainto_tsquery('simple', %(query)s) AS document
+                    t.track_id,
+                    t.track_name,
+                    t.artist_name,
+                    t.search_text,
+                    t.mpd_occurrences,
+                    q.text,
+                    word_similarity(q.text, t.search_text) AS word_score,
+                    strict_word_similarity(q.text, t.search_text) AS strict_score
+                FROM tracks AS t
+                CROSS JOIN search_query AS q
+                WHERE q.text <%% t.search_text
+                ORDER BY
+                    q.text <<-> t.search_text,
+                    t.mpd_occurrences DESC,
+                    t.track_id
+                LIMIT GREATEST(%(limit)s * 10, 100)
             )
             SELECT
-                t.track_id,
-                t.track_name,
-                t.artist_name
-            FROM tracks AS t
-            CROSS JOIN search_query AS q
-            WHERE
-                t.search_document @@ q.document
-                OR t.search_text %% q.text
-                OR q.text <%% t.search_text
+                track_id,
+                track_name,
+                artist_name
+            FROM candidates
             ORDER BY
-                CASE
-                    WHEN t.search_document @@ q.document
-                        THEN ts_rank_cd(t.search_document, q.document)
-                    ELSE 0
-                END DESC,
-                strict_word_similarity(q.text, t.search_text) DESC,
-                t.mpd_occurrences DESC,
-                t.track_id
+                starts_with(search_text, text) DESC,
+                strict_score DESC,
+                mpd_occurrences DESC,
+                word_score DESC,
+                track_id
             LIMIT %(limit)s
             """,
             {"query": query, "limit": limit},

@@ -255,9 +255,11 @@ def build_index():
         ANALYZE combined_embedding;
         """)
 
-
-for embedding_column, _ in data_sources.items():
-    load_embeddings(embedding_column)
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS tracks_search_text_gist_idx
+        ON tracks
+        USING GIST (search_text gist_trgm_ops);
+        """)
 
 insert_metadata()
 
