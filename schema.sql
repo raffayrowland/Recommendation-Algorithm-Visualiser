@@ -9,8 +9,7 @@ CREATE TABLE tracks (
     track_name TEXT NOT NULL,
     artist_name TEXT NOT NULL,
     mpd_occurrences INT DEFAULT 0,
-    search_text TEXT NOT NULL,
-    search_document TSVECTOR NOT NULL
+    search_text TEXT NOT NULL
 );
 
 CREATE TABLE track_embeddings (

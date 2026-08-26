@@ -38,17 +38,20 @@ def load_embeddings(source):
         split="train",
     )
 
-    query = sql.SQL("""
-    INSERT INTO track_embeddings (track_id, {col})
-    VALUES (%s, %s)
-    ON CONFLICT (track_id) DO UPDATE SET {col} = EXCLUDED.{col}
-    """).format(col=sql.Identifier(source),)
-
     count = 0
 
     with connection.transaction(), connection.cursor() as cursor:
         for batch in batches(dataset):
             rows = [(item["id"], item["embedding"]) for item in batch]
+
+            column = sql.Identifier(source).as_string(connection)
+
+            query = f"""
+                INSERT INTO track_embeddings (track_id, {column})
+                VALUES (%s, %s)
+                ON CONFLICT (track_id) DO UPDATE
+                SET {column} = EXCLUDED.{column}
+            """
 
             cursor.executemany(query, rows)
 
@@ -86,18 +89,14 @@ def insert_metadata():
                         item["track_name"][0],
                         item["artist_name"][0],
                         f"{track_search} {artist_search}".strip(),
-                        track_search,
-                        artist_search
                     )
                 )
 
             cursor.executemany(
                 """
                 INSERT INTO tracks
-                    (track_id, ISRC, track_name, artist_name, search_text, search_document)
-                VALUES (%s, %s, %s, %s, %s,
-                        setweight(to_tsvector('simple', %s), 'A') ||
-                        setweight(to_tsvector('simple', %s), 'B'))
+                    (track_id, ISRC, track_name, artist_name, search_text)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (track_id) DO NOTHING
                 """, rows,
             )
@@ -251,15 +250,17 @@ def build_index():
         ON combined_embedding
         USING hnsw (embedding vector_cosine_ops)
         WITH (m = 16, ef_construction = 64);
-        
-        ANALYZE combined_embedding;
         """)
+
+        print("Created combined embedding index")
 
         cursor.execute("""
         CREATE INDEX IF NOT EXISTS tracks_search_text_gist_idx
         ON tracks
         USING GIST (search_text gist_trgm_ops);
         """)
+
+        print("Created gist search index")
 
 insert_metadata()
 

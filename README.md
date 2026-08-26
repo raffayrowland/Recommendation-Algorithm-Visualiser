@@ -1,9 +1,27 @@
 # Music recommendation algorithm visualisation
 
-This project uses a combination of content based and collaborative based embeddings 
-to determine where songs sit in 640 dimensional space. This space is used to fetch songs that are 
-similar to a query song, by getting its nearest neighbours. The 640 dimensional space is also reduced down to 
-3 dimensions, and songs plotted as points in 3D space to create a visual representation of how this algorithm would group songs
+This project computes a 256 dimensional vector representation of 1.4 million songs using a weighted combination of each song's lyrics, 
+structure, attributes (key, tempo etc.), and collaborative filtering vector. This 'combined vector' is used to find similar songs to 
+a query song using nearest neighbour search. The 256 dimensional embedding space is also reduced to 3 dimensions to provide 
+an intuitive visualisation of how the algorithm groups songs. 
+
+## Approach
+
+The dataset used for this project (talkplay-data-extra) includes a 128 dimensional collaborative filtering vector, 512 
+dimensional CLAP embedding, and two 1024 dimensional qwen-0.6b embeddings, one for lyrics and one for attributes. This
+project uses a linear autoencoder to reduce all of these vectors down to a single 256 dimensional embedding, which is used 
+for nearest neighbour search. This has a few benefits: 
+
+- Similar ideas from different modalities are combined into one dimension, rather than spread across many. For example, 
+the meaning "Christmas" may be represented in lyrics, structure, and collaborative filtering separately. The autoencoder 
+can learn to combine these meanings into a single dimension, improving similarity search accuracy.
+- Nearest neighbour search on a 256 dimensional embedding space is much quicker than on a higher dimensional space. 
+- Storing and indexing a 256 dimensional embedding space takes up much less storage than a higher dimensional space.
+
+The autoencoder is trained alongside a decoder. The encoder produces the 256 dimensional embedding, 
+and the decoder attempts to reconstruct the original collaborative, CLAP, lyric, and attribute embeddings
+from the combined embedding, using cosine similarity as a loss metric. The decoder is only used for training
+purposes.
 
 ## Demo
 
@@ -21,6 +39,7 @@ https://github.com/user-attachments/assets/793eb4e9-4800-435c-940f-3f5698d23c80
 
 - Postgres / pgvector
 - umap-learn
+- torch
 - FastAPI
 - pandas
 - Deezer API
