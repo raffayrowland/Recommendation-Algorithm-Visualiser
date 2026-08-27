@@ -77,7 +77,8 @@ CREATE DATABASE music_recommender
     OWNER music_recommender_owner;
 
 \connect music_recommender
-
+```
+```
 CREATE EXTENSION vector;
 
 SET ROLE music_recommender_owner;
@@ -113,7 +114,7 @@ pg_restore \
   --dbname=music_recommender \
   --exit-on-error \
   --verbose \
-  tracks_and_combined_embedding.dump
+  database.dump
 ```
 
 Start the application
