@@ -3,9 +3,9 @@ import os
 from model import MultimodalAutoencoder
 
 LYRIC_WEIGHT =     0.20
-COLLAB_WEIGHT =    0.50
+COLLAB_WEIGHT =    0.45
 CLAP_WEIGHT =      0.25
-ATTRIBUTE_WEIGHT = 0.05
+ATTRIBUTE_WEIGHT = 0.10
 MODEL_NAME = (f"models/linear_CO{int(COLLAB_WEIGHT * 100)}"
               f"_CL{int(CLAP_WEIGHT * 100)}"
               f"_L{int(LYRIC_WEIGHT * 100)}"

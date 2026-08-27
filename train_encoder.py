@@ -1,18 +1,26 @@
 from itertools import islice
 import os
+import random
 import numpy as np
 import torch
 import torch.nn.functional as F
 from model import MultimodalAutoencoder
 
 LYRIC_WEIGHT =     0.20
-COLLAB_WEIGHT =    0.50
+COLLAB_WEIGHT =    0.45
 CLAP_WEIGHT =      0.25
-ATTRIBUTE_WEIGHT = 0.05
+ATTRIBUTE_WEIGHT = 0.10
 
 BATCH_SIZE = 512
 EPOCHS = 3
 LOSSES = ["total", "collab", "clap", "lyric", "attribute", "examples"]  # Losses recorded during training
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+if device.type == "cuda":
+    print(f"Using GPU: {torch.cuda.get_device_name(0)}")
+else:
+    print("CUDA unavailable; using CPU")
 
 os.makedirs("models", exist_ok=True)
 
@@ -64,8 +72,10 @@ def record_batch_losses(clb_tensor, clp_tensor, lrc_tensor, att_tensor, totals):
     losses = inference(clb_tensor, clp_tensor, lrc_tensor, att_tensor)
     batch_size = clb_tensor.shape[0]
 
-    for name, loss in zip(["total", "collab", "clap", "lyric", "attribute"], losses):
-        totals[name] += loss.item() * batch_size
+    values = torch.stack(losses).detach().cpu().tolist()
+
+    for name, value in zip(["total", "collab", "clap", "lyric", "attribute"], values):
+        totals[name] += value * batch_size
 
     totals["examples"] += batch_size
     return losses
@@ -81,9 +91,8 @@ split_data = np.load("embeddings/split.npy", mmap_mode="r")
 # Get the different splits
 train_indices = np.flatnonzero(split_data == 0)
 val_indices = np.flatnonzero(split_data == 1)
-test_indices = np.flatnonzero(split_data == 2)
 
-model = MultimodalAutoencoder()
+model = MultimodalAutoencoder().to(device)
 model.train()
 
 optimiser = torch.optim.AdamW(
@@ -98,15 +107,15 @@ for epoch in range(EPOCHS):
     batch_number = 0
     train_loss = {name: 0.0 for name in LOSSES}
 
-    rng = np.random.default_rng(epoch)
-    rng.shuffle(train_indices)  # Shuffles the training examples each epoch
+    train_batches = [batch for batch in batches(train_indices)]
+    random.shuffle(train_batches)
 
-    for batch in batches(train_indices):
+    for batch in train_batches:
         # Prepare vectors
-        collab_tensor = torch.from_numpy(np.array(collab_data[batch], copy=True))
-        clap_tensor = torch.from_numpy(np.array(clap_data[batch], copy=True))
-        lyric_tensor = torch.from_numpy(np.array(lyric_data[batch], copy=True))
-        attribute_tensor = torch.from_numpy(np.array(attribute_data[batch], copy=True))
+        collab_tensor = torch.from_numpy(np.array(collab_data[batch], copy=True)).to(device)
+        clap_tensor = torch.from_numpy(np.array(clap_data[batch], copy=True)).to(device)
+        lyric_tensor = torch.from_numpy(np.array(lyric_data[batch], copy=True)).to(device)
+        attribute_tensor = torch.from_numpy(np.array(attribute_data[batch], copy=True)).to(device)
 
         optimiser.zero_grad(set_to_none=True)
 
@@ -145,10 +154,10 @@ for epoch in range(EPOCHS):
 
     with torch.no_grad():
         for batch in batches(val_indices):
-            collab_tensor = torch.from_numpy(np.array(collab_data[batch], copy=True))
-            clap_tensor = torch.from_numpy(np.array(clap_data[batch], copy=True))
-            lyric_tensor = torch.from_numpy(np.array(lyric_data[batch], copy=True))
-            attribute_tensor = torch.from_numpy(np.array(attribute_data[batch], copy=True))
+            collab_tensor = torch.from_numpy(np.array(collab_data[batch], copy=True)).to(device)
+            clap_tensor = torch.from_numpy(np.array(clap_data[batch], copy=True)).to(device)
+            lyric_tensor = torch.from_numpy(np.array(lyric_data[batch], copy=True)).to(device)
+            attribute_tensor = torch.from_numpy(np.array(attribute_data[batch], copy=True)).to(device)
 
             # No need to unpack because no backpropogation
             record_batch_losses(collab_tensor, clap_tensor, lyric_tensor, attribute_tensor, val_loss)
