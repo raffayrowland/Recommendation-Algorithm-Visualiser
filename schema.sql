@@ -1,38 +1,26 @@
-BEGIN;
-
 CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-DROP TABLE IF EXISTS combined_embeddings, clap_embeddings, cf_bpr, metadata;
+DROP TABLE IF EXISTS tracks, track_embeddings, combined_embedding;
 
-CREATE TABLE metadata (
+CREATE TABLE tracks (
     track_id VARCHAR(22) PRIMARY KEY,
     isrc VARCHAR(12),
-    track_name TEXT[] NOT NULL,
-    artist_name TEXT[] NOT NULL,
-    tag_list TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    track_name TEXT NOT NULL,
+    artist_names TEXT[] NOT NULL,
     mpd_occurrences INT DEFAULT 0,
-    search_text TEXT NOT NULL,
-    search_document TSVECTOR NOT NULL
+    search_text TEXT NOT NULL
 );
 
-CREATE TABLE clap_embeddings (
-    track_id VARCHAR(22) PRIMARY KEY REFERENCES metadata,
-    embedding vector(512) NOT NULL
+CREATE TABLE track_embeddings (
+    track_id VARCHAR(22) PRIMARY KEY,
+    collab vector(128),
+    clap vector(512),
+    lyric vector(1024),
+    attributes vector(1024)
 );
 
-CREATE TABLE cf_bpr (
-    track_id VARCHAR(22) PRIMARY KEY REFERENCES metadata,
-    embedding vector(128) NOT NULL
+CREATE TABLE combined_embedding (
+    track_id VARCHAR(22) PRIMARY KEY,
+    embedding vector(256)
 );
-
-CREATE TABLE combined_embeddings (
-    track_id VARCHAR(22) PRIMARY KEY REFERENCES metadata,
-    emb_000 vector(640) NOT NULL,
-    emb_025 vector(640) NOT NULL,
-    emb_050 vector(640) NOT NULL,
-    emb_075 vector(640) NOT NULL,
-    emb_100 vector(640) NOT NULL
-);
-
-COMMIT;

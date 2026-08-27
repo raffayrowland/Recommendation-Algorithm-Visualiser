@@ -25,7 +25,6 @@
 
     <header class="topbar">
       <a class="brand" href="#" aria-label="Reset Songspace view">
-        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
         <span>Songspace</span>
       </a>
 
@@ -58,18 +57,18 @@
             <span>More results</span>
             <i data-lucide="chevron-down" aria-hidden="true"></i>
           </button>
-          <p class="search-end" id="search-end" hidden>You have reached the quiet edge of this search.</p>
+          <p class="search-note">Some songs may be missing because this project uses a limited dataset, particularly for newer releases. If you cannot find a track, try another search.</p>
         </section>
       </div>
 
-      <div class="view-switch" aria-label="Camera mode">
+      <div class="view-switch" aria-label="Camera controls">
         <button class="view-option is-active" id="map-mode" type="button" aria-pressed="true">
           <i data-lucide="move" aria-hidden="true"></i>
           <span>Orbit</span>
         </button>
-        <button class="view-option" id="explore-mode" type="button" aria-pressed="false">
-          <i data-lucide="navigation" aria-hidden="true"></i>
-          <span>Explore</span>
+        <button class="view-option" id="recenter-camera" type="button">
+          <i data-lucide="focus" aria-hidden="true"></i>
+          <span>Recenter</span>
         </button>
       </div>
     </header>
@@ -78,27 +77,16 @@
       <div class="panel-heading">
         <div>
           <span class="eyebrow">Point cloud</span>
-          <strong id="point-count-label">1,000 songs</strong>
+          <strong id="point-count-label">15,000 songs</strong>
         </div>
         <i data-lucide="sliders-horizontal" aria-hidden="true"></i>
       </div>
 
       <label class="number-field" for="point-count">
         <span>Points</span>
-        <input id="point-count" type="number" min="100" max="20000" step="100" value="1000" inputmode="numeric">
+        <input id="point-count" type="number" min="100" max="20000" step="100" value="15000" inputmode="numeric">
       </label>
-      <input class="point-range" id="point-range" type="range" min="100" max="20000" step="100" value="1000" aria-label="Number of points">
-
-      <fieldset class="alpha-field">
-        <legend>Alpha</legend>
-        <div class="alpha-options">
-          <button type="button" data-alpha="000">0</button>
-          <button type="button" data-alpha="025">25</button>
-          <button class="is-active" type="button" data-alpha="050">50</button>
-          <button type="button" data-alpha="075">75</button>
-          <button type="button" data-alpha="100">100</button>
-        </div>
-      </fieldset>
+      <input class="point-range" id="point-range" type="range" min="100" max="20000" step="100" value="15000" aria-label="Number of points">
 
       <button class="load-button" id="load-space" type="button">
         <i data-lucide="refresh-cw" aria-hidden="true"></i>
@@ -131,7 +119,6 @@
       </div>
       <div class="neighbour-meta">
         <span><i data-lucide="orbit" aria-hidden="true"></i><span id="neighbour-count">0 tracks</span></span>
-        <span id="neighbour-alpha">Alpha 50%</span>
       </div>
       <div class="neighbour-list" id="neighbour-list"></div>
     </aside>
@@ -167,7 +154,7 @@
 
     <section class="load-state" id="load-state" aria-live="polite">
       <div class="load-orbit" aria-hidden="true"><span></span><span></span><span></span></div>
-      <strong id="load-title">Mapping 1,000 songs</strong>
+      <strong id="load-title">Mapping 15,000 songs</strong>
       <span id="load-detail">This can take a moment for a new point cloud.</span>
       <button id="retry-load" type="button" hidden>Try again</button>
     </section>

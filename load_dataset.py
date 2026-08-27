@@ -1,356 +1,269 @@
 import os
 from itertools import islice
 from datasets import load_dataset
+import numpy as np
+from psycopg import sql
 import time
 from database import get_connection, normalise_search_text
-from calculate_combined import *
+from load_embeddings import main as write_embedding_files
 
-connection = get_connection()
 BATCH_SIZE = 10_000
 START_TIME = time.time()
 
 # Batch generator
-def batches(items):
+def batches(items, batch_size=BATCH_SIZE):
     iterator = iter(items)
-    while batch := list(islice(iterator, BATCH_SIZE)):
+    while batch := list(islice(iterator, batch_size)):
         yield batch
 
 os.makedirs("dataset/metadata", exist_ok=True)
-os.makedirs("dataset/users", exist_ok=True)
 os.makedirs("dataset/items", exist_ok=True)
 os.makedirs("dataset/clap", exist_ok=True)
 os.makedirs("dataset/mpd", exist_ok=True)
+os.makedirs("dataset/attributes", exist_ok=True)
+os.makedirs("dataset/lyrics", exist_ok=True)
 
-metadata = load_dataset(
-    "parquet",
-    data_files="dataset/metadata/train-*.parquet",
-    split="train",
-)
+data_sources = {
+    "clap": "dataset/clap/*.parquet",
+    "collab": "dataset/items/*.parquet",
+    "lyric": "dataset/lyrics/*.parquet",
+    "attributes": "dataset/attributes/*.parquet",
+}
 
-# Insert all metadata rows
-count = 0
-with connection.cursor() as cursor:
-    for batch in batches(metadata):
-        rows = []
-        for item in batch:
-            track_name = item["track_name"]
-            if not track_name:
-                count += 1
-                continue
+def load_embeddings(source):
+    connection = get_connection()
+    dataset = load_dataset(
+        "parquet",
+        data_files=data_sources[source],
+        split="train",
+    )
 
-            isrcs = item["ISRC"]
-            artist_name = item["artist_name"]
-            track_search_text = normalise_search_text(" ".join(track_name))
-            artist_search_text = normalise_search_text(" ".join(artist_name))
-            rows.append(
-                (
-                    item["track_id"],
-                    isrcs[0] if isrcs else None,
-                    track_name,
-                    artist_name,
-                    item["tag_list"],
-                    f"{track_search_text} {artist_search_text}".strip(),
-                    track_search_text,
-                    artist_search_text,
-                )
-            )
+    count = 0
 
-        if not rows:
-            continue
+    with connection.transaction(), connection.cursor() as cursor:
+        for batch in batches(dataset):
+            rows = [(item["id"], item["embedding"]) for item in batch]
 
-        cursor.executemany(
+            column = sql.Identifier(source).as_string(connection)
+
+            query = f"""
+                INSERT INTO track_embeddings (track_id, {column})
+                VALUES (%s, %s)
+                ON CONFLICT (track_id) DO UPDATE
+                SET {column} = EXCLUDED.{column}
             """
-            INSERT INTO metadata (
-                track_id, ISRC, track_name, artist_name, tag_list,
-                search_text, search_document
-            )
-                VALUES (
-                    %s, %s, %s, %s, %s, %s,
-                    setweight(to_tsvector('simple', %s), 'A') ||
-                    setweight(to_tsvector('simple', %s), 'B')
-                )
-                ON CONFLICT (track_id) DO NOTHING
-            """,
-            rows,
-        )
 
-        count += len(rows)
-        if count % 10000 == 0:
+            cursor.executemany(query, rows)
+
+            count += len(rows)
+            print(f"\r{count} {source} rows inserted" if count % 10000 == 0 else "", end="")
+
+        print(f"\r{count} {source} rows inserted\n")
+
+    connection.close()
+
+
+def insert_metadata():
+    metadata = load_dataset(
+        "parquet",
+        data_files="dataset/metadata/*.parquet",
+        split="train",
+    )
+
+    count = 0
+    with get_connection() as connection, connection.cursor() as cursor:
+        for batch in batches(metadata, batch_size=100_000):
+            rows = []
+
+            for item in batch:
+                if not item["track_name"] or not item["artist_name"] or not item["ISRC"]:
+                    continue
+
+                artist_names = list(dict.fromkeys(
+                    name.strip()
+                    for name in item["artist_name"]
+                    if name and name.strip()
+                ))
+
+                artist_search = normalise_search_text(" ".join(artist_names))
+                track_search = normalise_search_text(item["track_name"][0])
+
+                rows.append(
+                    (
+                        item["track_id"],
+                        item["ISRC"][0],
+                        item["track_name"][0],
+                        artist_names,
+                        f"{track_search} {artist_search}".strip(),
+                    )
+                )
+
+            cursor.executemany(
+                """
+                INSERT INTO tracks
+                    (track_id, ISRC, track_name, artist_names, search_text)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (track_id) DO UPDATE SET
+                    isrc = EXCLUDED.isrc,
+                    track_name = EXCLUDED.track_name,
+                    artist_names = EXCLUDED.artist_names,
+                    search_text = EXCLUDED.search_text
+                """, rows,
+            )
+            count += len(rows)
             print(f"\r{count} metadata rows inserted", end="")
 
-print(f"\r{count} metadata rows inserted")
-connection.commit()
+        print()
+        connection.commit()
 
-clap_embeddings = load_dataset(
-    "parquet",
-    data_files="dataset/clap/train-*.parquet",
-    split="train",
-)
 
-# Insert all CLAP embeddings
-count = 0
-with connection.cursor() as cursor:
-    for batch in batches(clap_embeddings):
-        rows = [(item["id"], item["embedding"], item["id"]) for item in batch]
-
-        cursor.executemany(
-            """
-            INSERT INTO clap_embeddings (track_id, embedding)
-                SELECT %s, %s
-                WHERE EXISTS (
-                    SELECT 1 FROM metadata WHERE track_id = %s
-                )
-                ON CONFLICT (track_id) DO NOTHING
-            """,
-            rows,
-        )
-
-        count += len(rows)
-        if count % 10000 == 0:
-            print(f"\r{count} clap rows inserted", end="")
-
-print(f"\r{count} clap rows inserted")
-connection.commit()
-
-item_embeddings = load_dataset(
-    "parquet",
-    data_files="dataset/items/item-*.parquet",
-    split="train",
-)
-
-# Insert all cf-bpr embeddings
-count = 0
-with connection.cursor() as cursor:
-    for batch in batches(item_embeddings):
-        rows = [(item["id"], item["embedding"], item["id"]) for item in batch]
-
-        cursor.executemany(
-            """
-            INSERT INTO cf_bpr (track_id, embedding)
-                SELECT %s, %s
-                WHERE EXISTS (
-                    SELECT 1 FROM metadata WHERE track_id = %s
-                )
-                ON CONFLICT (track_id) DO NOTHING
-            """,
-            rows,
-        )
-
-        count += len(rows)
-        if count % 10000 == 0:
-            print(f"\r{count} cfbpr rows inserted", end="")
-
-print(f"\r{count} cfbpr rows inserted")
-connection.commit()
-
-# Delete rows that do not appear in all three databases
-with connection.cursor() as cursor:
-    cursor.execute(
-        """
-        CREATE TEMP TABLE common_track_ids
-        ON COMMIT DROP
-        AS
-        SELECT m.track_id
-        FROM metadata AS m
-        INNER JOIN clap_embeddings AS c
-            ON c.track_id = m.track_id
-        INNER JOIN cf_bpr AS b
-            ON b.track_id = m.track_id;
-
-        DELETE FROM clap_embeddings AS c
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM common_track_ids AS common
-            WHERE common.track_id = c.track_id
-        );
-
-        DELETE FROM cf_bpr AS b
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM common_track_ids AS common
-            WHERE common.track_id = b.track_id
-        );
-
-        DELETE FROM metadata AS m
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM common_track_ids AS common
-            WHERE common.track_id = m.track_id
-        );
-        """
-    )
-print("Deleted rows that do not appear in all three databases")
-connection.commit()
-
-mpd = load_dataset(
-    "parquet",
-    data_files="dataset/mpd/train-*.parquet",
-    split="train",
-)
-
-updates = {}
-count = 0
-for playlist in mpd:
-    for track in playlist["track_ids"]:
-        if track not in updates:
-            updates[track] = 1
-
-        else:
-            updates[track] += 1
-
-    count += 1
-    if count % 50_000 == 0:
-        print(f"\r{count} playlists processed", end="")
-
-print(f"\r{count} playlists processed, {len(updates)} unique tracks")
-
-count = 0
-with connection.cursor() as cursor:
-    for batch in batches(list(updates.items())):
-        track_ids = [track_id for track_id, _ in batch]
-        occurrences = [n for _, n in batch]
-
+def delete_incomplete_data():
+    with get_connection() as connection, connection.cursor() as cursor:
+        # Delete rows which are missing one or more embedding
+        print("Removing embedding rows that are missing one or more embedding")
         cursor.execute(
             """
-            UPDATE metadata AS m
-            SET mpd_occurrences = u.occurrences
-            FROM unnest(%s::text[], %s::int[]) AS u(track_id, occurrences)
-            WHERE m.track_id = u.track_id
-            """, (track_ids, occurrences),
+            DELETE FROM track_embeddings
+            WHERE collab IS NULL
+               OR clap IS NULL
+               OR lyric IS NULL
+               OR attributes IS NULL;
+            """
         )
 
-        count += len(batch)
-        if count % 1000 == 0:
-            print(f"\r{count} occurrences updated", end="")
-
-print(f"\r{count} occurrences updated")
-connection.commit()
-
-# Calculate and insert combined embeddings for alphas 0, 0.25, 0.5, 0.75, and 1
-count = 0
-with connection.cursor() as cursor:
-    all_track_ids = cursor.execute("SELECT track_id FROM metadata").fetchall()
-
-    for batch in batches(all_track_ids):
-        track_ids = [track_id[0] for track_id in batch]
-
-        cfbpr_clap = cursor.execute(
+        # Delete rows which do not have any embeddings
+        print("Removing metadata rows which do not have corresponding embeddings")
+        cursor.execute(
             """
-            SELECT c.track_id,
-                   c.embedding AS clap_embedding,
-                   b.embedding AS cf_bpr_embedding
-            FROM clap_embeddings AS c
-                     JOIN cf_bpr AS b ON b.track_id = c.track_id
-            WHERE c.track_id = ANY (%s)
-            """,
-            (track_ids,),
-        ).fetchall()
-
-        rows = []
-        for track_id, clap_embedding, cfbpr_embedding in cfbpr_clap:
-            clap = clap_embedding.to_numpy()
-            cfbpr = cfbpr_embedding.to_numpy()
-            cfbpr, clap = normalise_vectors(cfbpr, clap)
-
-            rows.append((
-                track_id,
-                calculate_combined(cfbpr, clap, 0),
-                calculate_combined(cfbpr, clap, 0.25),
-                calculate_combined(cfbpr, clap, 0.5),
-                calculate_combined(cfbpr, clap, 0.75),
-                calculate_combined(cfbpr, clap, 1),
-            ))
-
-        cursor.executemany(
+            DELETE FROM tracks
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM track_embeddings
+                WHERE track_embeddings.track_id = tracks.track_id
+            );
             """
-            INSERT INTO combined_embeddings (track_id, emb_000, emb_025, emb_050, emb_075, emb_100)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (track_id) DO NOTHING
-            """, rows
         )
-        count += len(rows)
 
-        if count % 10000 == 0:
-            print(f"{count} combined embeddings inserted\r", end="")
+        # Delete embedding rows that do not have any metadata
+        print("Removing embedding rows that do not have any metadata")
+        cursor.execute(
+            """
+            DELETE FROM track_embeddings
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM tracks
+                WHERE tracks.track_id = track_embeddings.track_id
+            );
+            """
+        )
+        connection.commit()
 
-print(f"{count} combined embeddings inserted")
-connection.commit()
 
-# Build indexes to speed up NN, text search, and popularity ordering
-indexes = [
-    (
-        "combined_embeddings_emb_000_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_000_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_000 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "combined_embeddings_emb_025_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_025_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_025 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "combined_embeddings_emb_050_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_050_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_050 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "combined_embeddings_emb_075_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_075_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_075 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "combined_embeddings_emb_100_ivfflat_idx",
-        """
-        CREATE INDEX IF NOT EXISTS combined_embeddings_emb_100_ivfflat_idx
-            ON combined_embeddings USING ivfflat (emb_100 vector_cosine_ops)
-            WITH (lists = 1215)
-        """,
-    ),
-    (
-        "metadata_search_document_gin_idx",
-        """
-        CREATE INDEX IF NOT EXISTS metadata_search_document_gin_idx
-            ON metadata USING gin (search_document)
-        """,
-    ),
-    (
-        "metadata_search_text_gin_idx",
-        """
-        CREATE INDEX IF NOT EXISTS metadata_search_text_gin_idx
-            ON metadata USING gin (search_text gin_trgm_ops)
-        """,
-    ),
-    (
-        "metadata_mpd_occurrences_idx",
-        """
-        CREATE INDEX IF NOT EXISTS metadata_mpd_occurrences_idx
-            ON metadata (mpd_occurrences DESC)
-        """,
-    ),
-]
+def update_mpd_counts():
+    mpd = load_dataset(
+        "parquet",
+        data_files="dataset/mpd/train-*.parquet",
+        split="train",
+    )
 
-with connection.cursor() as cursor:
-    cursor.execute("SET maintenance_work_mem = '4096MB'")
-    cursor.execute("SET max_parallel_maintenance_workers = 7")
-connection.commit()
+    updates = {}
+    count = 0
+    for playlist in mpd:
+        for track in playlist["track_ids"]:
+            if track not in updates:
+                updates[track] = 1
 
-for index_name, statement in indexes:
-    with connection.cursor() as cursor:
-        cursor.execute(statement)
-    connection.commit()
-    print(f"Created {index_name}")
+            else:
+                updates[track] += 1
 
-print(f"Completion time: {time.time() - START_TIME} seconds")
-connection.close()
+        count += 1
+        print(f"\r{count} playlists processed" if count % 50_000 == 0 else "", end="")
+
+    with get_connection() as connection, connection.cursor() as cursor:
+        for batch in batches(updates.items()):
+            track_ids, occurrences = map(list, zip(*batch))
+
+            cursor.execute(
+                """
+                UPDATE tracks AS t
+                SET mpd_occurrences = u.occurrences
+                FROM unnest(%s::text[], %s::int[]) AS u(track_id, occurrences)
+                WHERE t.track_id = u.track_id
+                """,
+                (track_ids, occurrences),
+            )
+
+        print()
+        connection.commit()
+
+
+def insert_combined_embeddings():
+    count = 0
+    track_id_data = np.load("embeddings/track_id.npy", mmap_mode="r")
+    collab_data = np.load("embeddings/collab.npy", mmap_mode="c")
+    clap_data = np.load("embeddings/clap.npy", mmap_mode="c")
+    lyric_data = np.load("embeddings/lyrics.npy", mmap_mode="c")
+    attribute_data = np.load("embeddings/attributes.npy", mmap_mode="c")
+
+    with get_connection() as connection, connection.cursor() as cursor:
+        for start in range(0, len(track_id_data), BATCH_SIZE):
+            stop = min(start + BATCH_SIZE, len(track_id_data))
+
+            track_ids = track_id_data[start:stop].tolist()
+            embeddings = get_embeddings(
+                collab_data[start:stop],
+                clap_data[start:stop],
+                lyric_data[start:stop],
+                attribute_data[start:stop],
+            )
+
+            cursor.executemany(
+                """
+                INSERT INTO combined_embedding (track_id, embedding)
+                VALUES (%s, %s)
+                ON CONFLICT (track_id) DO UPDATE SET embedding = EXCLUDED.embedding
+                """, zip(track_ids, embeddings)
+            )
+
+            count += stop - start
+            print(f"\rInserted {count} rows", end="")
+
+
+def build_index():
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute("SET LOCAL maintenance_work_mem = '6GB'")
+        cursor.execute("SET LOCAL max_parallel_maintenance_workers = 8")
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS combined_embedding_hnsw_cosine_idx
+        ON combined_embedding
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = 16, ef_construction = 64);
+        """)
+
+        print("\nCreated combined embedding index")
+
+        cursor.execute("""
+        CREATE INDEX IF NOT EXISTS tracks_search_text_gist_idx
+        ON tracks
+        USING GIST (search_text gist_trgm_ops);
+        """)
+
+        print("Created gist search index")
+
+insert_metadata()
+
+for source in data_sources:
+    load_embeddings(source)
+
+delete_incomplete_data()
+
+update_mpd_counts()
+
+write_embedding_files()
+
+import train_encoder
+from calculate_combined import get_embeddings
+
+insert_combined_embeddings()
+
+build_index()

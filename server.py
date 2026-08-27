@@ -1,4 +1,5 @@
 import uvicorn
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -7,15 +8,18 @@ from database import search_for_song_by_name, get_nearest_neighbours, get_info_s
 import json
 import requests
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+
 app = FastAPI()
-app.mount("/frontend", StaticFiles(directory="frontend"))
+app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR))
 
 @app.get("/")  # Returns the main HTML file
 def get_home():
-    return FileResponse(f"frontend/index.html")
+    return FileResponse(FRONTEND_DIR / "index.html")
 
 @app.get("/api/space")  # Fetches / computes JSON of the 3D space for given parameters
-def get_songs(n, alpha):
+def get_songs(n):
     n = int(n)
 
     if not 100 <= n <= 20_000:
@@ -24,13 +28,7 @@ def get_songs(n, alpha):
             detail="Number of songs must be between 100 and 20,000"
         )
 
-    if alpha not in ["000", "025", "050", "075", "100"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Alpha must be 0, 0.25, 0.5, 0.75, or 1"
-        )
-
-    songs_and_embeddings = build_vector_space(n, alpha)
+    songs_and_embeddings = build_vector_space(n)
     data = songs_and_embeddings[
         [
             "track_id",
@@ -59,7 +57,7 @@ def search_song_by_name(query, n):
     return {"songs": songs_json}
 
 @app.get("/api/nn")  # Gets the true nearest neighbours of a song from a track id
-def get_true_nearest_neighbours(track_id, n, alpha):
+def get_true_nearest_neighbours(track_id, n):
     n = int(n)
     if not 100 <= n <= 20_000:
         raise HTTPException(
@@ -67,28 +65,20 @@ def get_true_nearest_neighbours(track_id, n, alpha):
             detail="Number of songs must be between 100 and 20,000"
         )
 
-    if alpha not in ["000", "025", "050", "075", "100"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Alpha must be 0, 0.25, 0.5, 0.75, or 1"
-        )
-
-    neighbours = get_nearest_neighbours(track_id, alpha)
+    neighbours = get_nearest_neighbours(track_id)
     if not neighbours:
         raise HTTPException(status_code=404, detail="Track not found")
 
-    existing_space = build_vector_space(n, alpha)
+    existing_space = build_vector_space(n)
     points_to_display = neighbours
 
     if track_id not in set(existing_space["track_id"]):
-        searched_track = get_info_single_song(track_id, alpha)
+        searched_track = get_info_single_song(track_id)
         if searched_track is None:
             raise HTTPException(status_code=404, detail="Track not found")
         points_to_display = [searched_track, *neighbours]
 
-    neighbour_points = add_additional_points(
-        points_to_display, existing_space, n, alpha
-    )
+    neighbour_points = add_additional_points(points_to_display, existing_space, n)
 
     data = neighbour_points[
         [
