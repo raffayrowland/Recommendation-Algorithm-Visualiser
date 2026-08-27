@@ -125,6 +125,7 @@ def main():
 
         print(f"\r{rows_written:,}/{row_count:,} rows exported", end="")
 
+    print()
     track_id_file.flush()
     collab_file.flush()
     clap_file.flush()

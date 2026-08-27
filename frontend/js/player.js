@@ -53,7 +53,7 @@ export function createPlayer(showToast) {
   function populate(payload, fallback) {
     const title = payload.title || fallback.track_name;
     els.playerTitle.textContent = title;
-    els.playerArtist.textContent = payload.artist || fallback.artist_name;
+    els.playerArtist.textContent = fallback.artist_name || payload.artist;
 
     if (payload.picture_link) {
       els.coverArt.src = payload.picture_link;

@@ -1,11 +1,14 @@
 import os
 import unicodedata
+from pathlib import Path
 import psycopg
 from psycopg import sql
 from dotenv import load_dotenv
 from pgvector.psycopg import register_vector
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+load_dotenv(PROJECT_ROOT / ".env")
 
 def normalise_search_text(value):
     decomposed = unicodedata.normalize("NFKD", value).casefold()
@@ -39,7 +42,7 @@ def get_info_for_visualisation(n):
         SELECT
             t.track_id,
             t.track_name,
-            t.artist_name,
+            array_to_string(t.artist_names, ', ') AS artist_name,
             t.isrc,
             ce.embedding AS combined_embedding
         FROM tracks AS t
@@ -68,7 +71,7 @@ def search_for_song_by_name(query, n=5):
                 SELECT
                     t.track_id,
                     t.track_name,
-                    t.artist_name,
+                    array_to_string(t.artist_names, ', ') AS artist_name,
                     t.search_text,
                     t.mpd_occurrences,
                     q.text,
@@ -128,7 +131,7 @@ def get_nearest_neighbours(track_id, limit=50):
         SELECT
             neighbours.track_id,
             tracks.track_name,
-            tracks.artist_name,
+            array_to_string(tracks.artist_names, ', ') AS artist_name,
             tracks.isrc,
             neighbours.combined_embedding
         FROM neighbours
@@ -155,7 +158,7 @@ def get_info_single_song(track_id):
             SELECT
                 t.track_id,
                 t.track_name,
-                t.artist_name,
+                array_to_string(t.artist_names, ', ') AS artist_name,
                 t.isrc,
                 e.embedding AS embedding
             FROM tracks AS t

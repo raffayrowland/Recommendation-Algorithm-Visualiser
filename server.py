@@ -1,4 +1,5 @@
 import uvicorn
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -7,12 +8,15 @@ from database import search_for_song_by_name, get_nearest_neighbours, get_info_s
 import json
 import requests
 
+PROJECT_ROOT = Path(__file__).resolve().parent
+FRONTEND_DIR = PROJECT_ROOT / "frontend"
+
 app = FastAPI()
-app.mount("/frontend", StaticFiles(directory="frontend"))
+app.mount("/frontend", StaticFiles(directory=FRONTEND_DIR))
 
 @app.get("/")  # Returns the main HTML file
 def get_home():
-    return FileResponse(f"frontend/index.html")
+    return FileResponse(FRONTEND_DIR / "index.html")
 
 @app.get("/api/space")  # Fetches / computes JSON of the 3D space for given parameters
 def get_songs(n):

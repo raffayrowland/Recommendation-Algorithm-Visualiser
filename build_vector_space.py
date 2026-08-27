@@ -2,16 +2,20 @@ import numpy as np
 import pandas as pd
 import joblib
 import umap
-import os
+from pathlib import Path
 from database import get_info_for_visualisation
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+SPACES_DIR = PROJECT_ROOT / "spaces"
 
 
 def build_vector_space(n):
-    os.makedirs(f"spaces/{n}", exist_ok=True)
-    points_path = f"spaces/{n}/points.pkl"
-    reducer_path = f"spaces/{n}/reducer.pkl"
+    space_dir = SPACES_DIR / str(n)
+    space_dir.mkdir(parents=True, exist_ok=True)
+    points_path = space_dir / "points.pkl"
+    reducer_path = space_dir / "reducer.pkl"
 
-    if os.path.exists(points_path):
+    if points_path.exists():
         return pd.read_pickle(points_path)
 
     points = get_info_for_visualisation(n)
@@ -28,7 +32,6 @@ def build_vector_space(n):
         metric="euclidean",
         n_neighbors=30,
         min_dist=0.1,
-        random_state=1
     ).fit(combined_embeddings)
     reduced_embeddings = reducer.embedding_
 
@@ -50,7 +53,7 @@ def build_vector_space(n):
 
 
 def add_additional_points(points, existing_space, n):
-    reducer_path = f"spaces/{n}/reducer.pkl"
+    reducer_path = SPACES_DIR / str(n) / "reducer.pkl"
 
     neighbour_ids = [point[0] for point in points]
     existing_ids = set(existing_space["track_id"])
@@ -67,7 +70,7 @@ def add_additional_points(points, existing_space, n):
             .reset_index()
         )
 
-    if not os.path.exists(reducer_path):
+    if not reducer_path.exists():
         raise FileNotFoundError(f"Reducer not found: {reducer_path}")
 
     track_ids, track_names, artist_names, isrcs, combined_embeddings = map(

@@ -7,7 +7,7 @@ CREATE TABLE tracks (
     track_id VARCHAR(22) PRIMARY KEY,
     isrc VARCHAR(12),
     track_name TEXT NOT NULL,
-    artist_name TEXT NOT NULL,
+    artist_names TEXT[] NOT NULL,
     mpd_occurrences INT DEFAULT 0,
     search_text TEXT NOT NULL
 );

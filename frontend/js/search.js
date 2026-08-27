@@ -88,7 +88,6 @@ export function createSearch({ findPoint, onSelect }) {
     els.searchResults.replaceChildren(fragment);
     els.searchCount.textContent = `${state.items.length} found`;
     els.moreResults.hidden = state.isDone || !state.items.length;
-    els.searchEnd.hidden = !state.isDone || !state.items.length;
   }
 
   function activate(index) {

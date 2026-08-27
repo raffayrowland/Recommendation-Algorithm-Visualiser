@@ -6,7 +6,7 @@ import { hasPosition } from "./api.js";
 
 const COLORS = {
   point: new THREE.Color("#b8b8b4"),
-  neighbour: new THREE.Color("#ffe600"),
+  neighbour: new THREE.Color("#00a8ff"),
   selected: new THREE.Color("#ffffff"),
 };
 
@@ -77,13 +77,17 @@ export function createSongMap({ canvas, hoverLabel, hoverTitle, hoverArtist, onP
 
   function createPointMaterial() {
     return new THREE.ShaderMaterial({
-      uniforms: { pixelRatio: { value: pixelRatio() } },
+      uniforms: {
+        pixelRatio: { value: pixelRatio() },
+        cloudOpacity: { value: 1 },
+      },
       vertexColors: true,
       transparent: true,
       depthTest: true,
       depthWrite: true,
       vertexShader: `
         uniform float pixelRatio;
+        uniform float cloudOpacity;
         attribute float pointSize;
         attribute float pointOpacity;
         varying vec3 pointColor;
@@ -91,7 +95,7 @@ export function createSongMap({ canvas, hoverLabel, hoverTitle, hoverArtist, onP
 
         void main() {
           pointColor = color;
-          opacity = pointOpacity;
+          opacity = pointOpacity * cloudOpacity;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = pointSize * pixelRatio;
         }
@@ -195,6 +199,10 @@ export function createSongMap({ canvas, hoverLabel, hoverTitle, hoverArtist, onP
     rebuild();
   }
 
+  function setOpacity(opacity) {
+    cloud.material.uniforms.cloudOpacity.value = THREE.MathUtils.clamp(opacity, 0, 1);
+  }
+
   function setSelection(point, neighbours = []) {
     state.selected = point;
     state.neighbours = neighbours;
@@ -208,6 +216,7 @@ export function createSongMap({ canvas, hoverLabel, hoverTitle, hoverArtist, onP
     state.neighbourIds.clear();
     hideHover();
     if (rebuildCloud) rebuild();
+    else updateAppearance();
   }
 
   function findPoint(trackId) {
@@ -431,6 +440,7 @@ export function createSongMap({ canvas, hoverLabel, hoverTitle, hoverArtist, onP
     highlight,
     resetCamera,
     setMode,
+    setOpacity,
     setPoints,
     setSelection,
   };

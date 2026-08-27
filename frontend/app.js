@@ -5,7 +5,7 @@ import { createSearch } from "./js/search.js";
 import { createSongMap } from "./js/song-map.js";
 
 const state = {
-  pointCount: 10000,
+  pointCount: 15000,
   loadedPointCount: 0,
   neighbours: [],
   selected: null,
@@ -43,6 +43,7 @@ async function loadSpace() {
   els.retryLoad.hidden = true;
   els.loadTitle.textContent = `Mapping ${formatNumber(pointCount)} songs`;
   els.loadDetail.textContent = "This can take a moment for a new point cloud.";
+  songMap.setOpacity(0.6);
   document.body.classList.remove("has-cloud");
   setSceneStatus(`Loading ${formatNumber(pointCount)} songs`);
   deselectPoint({ animate: false, preserveCloud: true });
@@ -68,6 +69,7 @@ async function loadSpace() {
     els.retryLoad.hidden = false;
     setSceneStatus("Point cloud unavailable");
   } finally {
+    songMap.setOpacity(1);
     state.isLoadingSpace = false;
     els.loadSpace.classList.remove("is-loading");
     els.loadSpace.disabled = false;
@@ -200,7 +202,7 @@ function renderNeighbourError(message) {
 
 function clampPointCount(value) {
   const parsed = Number.parseInt(value, 10);
-  const finiteValue = Number.isFinite(parsed) ? parsed : 1000;
+  const finiteValue = Number.isFinite(parsed) ? parsed : state.pointCount;
   return Math.round(Math.min(20000, Math.max(100, finiteValue)) / 100) * 100;
 }
 
@@ -211,25 +213,6 @@ function syncPointControls(value) {
   els.pointRange.value = pointCount;
   els.pointRange.style.setProperty("--range-fill", `${fill}%`);
   els.pointCountLabel.textContent = `${formatNumber(pointCount)} songs`;
-}
-
-function setCameraMode(mode) {
-  if (mode === songMap.mode) return;
-
-  const isExplore = mode === "explore";
-  songMap.setMode(mode);
-  els.mapMode.classList.toggle("is-active", !isExplore);
-  els.exploreMode.classList.toggle("is-active", isExplore);
-  els.mapMode.setAttribute("aria-pressed", String(!isExplore));
-  els.exploreMode.setAttribute("aria-pressed", String(isExplore));
-
-  if (isExplore) {
-    setSceneStatus("Explore camera active");
-  } else if (state.selected) {
-    setSceneStatus(`${state.neighbours.length} nearest`);
-  } else {
-    setSceneStatus(`${formatNumber(state.loadedPointCount)} points`);
-  }
 }
 
 function showToast(message) {
@@ -267,8 +250,8 @@ function bindControls() {
 
   els.loadSpace.addEventListener("click", loadSpace);
   els.retryLoad.addEventListener("click", loadSpace);
-  els.mapMode.addEventListener("click", () => setCameraMode("map"));
-  els.exploreMode.addEventListener("click", () => setCameraMode("explore"));
+  els.mapMode.addEventListener("click", () => songMap.setMode("map"));
+  els.recenterCamera.addEventListener("click", () => songMap.resetCamera(true));
   els.closePanel.addEventListener("click", () => deselectPoint());
 
   window.addEventListener("keydown", (event) => {

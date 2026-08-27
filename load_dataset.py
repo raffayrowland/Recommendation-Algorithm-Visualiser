@@ -6,7 +6,6 @@ from psycopg import sql
 import time
 from database import get_connection, normalise_search_text
 from load_embeddings import main as write_embedding_files
-from calculate_combined import get_embeddings
 
 BATCH_SIZE = 10_000
 START_TIME = time.time()
@@ -80,15 +79,21 @@ def insert_metadata():
                 if not item["track_name"] or not item["artist_name"] or not item["ISRC"]:
                     continue
 
+                artist_names = list(dict.fromkeys(
+                    name.strip()
+                    for name in item["artist_name"]
+                    if name and name.strip()
+                ))
+
+                artist_search = normalise_search_text(" ".join(artist_names))
                 track_search = normalise_search_text(item["track_name"][0])
-                artist_search = normalise_search_text(item["artist_name"][0])
 
                 rows.append(
                     (
                         item["track_id"],
                         item["ISRC"][0],
                         item["track_name"][0],
-                        item["artist_name"][0],
+                        artist_names,
                         f"{track_search} {artist_search}".strip(),
                     )
                 )
@@ -96,14 +101,19 @@ def insert_metadata():
             cursor.executemany(
                 """
                 INSERT INTO tracks
-                    (track_id, ISRC, track_name, artist_name, search_text)
+                    (track_id, ISRC, track_name, artist_names, search_text)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (track_id) DO NOTHING
+                ON CONFLICT (track_id) DO UPDATE SET
+                    isrc = EXCLUDED.isrc,
+                    track_name = EXCLUDED.track_name,
+                    artist_names = EXCLUDED.artist_names,
+                    search_text = EXCLUDED.search_text
                 """, rows,
             )
             count += len(rows)
             print(f"\r{count} metadata rows inserted", end="")
 
+        print()
         connection.commit()
 
 
@@ -183,6 +193,7 @@ def update_mpd_counts():
                 (track_ids, occurrences),
             )
 
+        print()
         connection.commit()
 
 
@@ -241,11 +252,17 @@ def build_index():
 
 insert_metadata()
 
+for source in data_sources:
+    load_embeddings(source)
+
 delete_incomplete_data()
 
 update_mpd_counts()
 
 write_embedding_files()
+
+import train_encoder
+from calculate_combined import get_embeddings
 
 insert_combined_embeddings()
 
