@@ -35,6 +35,94 @@ Showing the nearest neighbours for the song "All I want for Christmas is you" sh
 
 https://github.com/user-attachments/assets/793eb4e9-4800-435c-940f-3f5698d23c80
 
+## Prerequisites
+
+The setup below is tested with Ubuntu 24.04, Python 3.12, and PostgreSQL 18. The preprocessed database dump was created with
+PostgreSQL 18
+
+- Python 3.12
+- PostgreSQL 18
+- pgvector for PostgreSQL 18
+
+The preprocessed database dump was created with PostgreSQL 18, so using the same major version is recommended.
+
+## Installation
+
+### Method 1: Preprocessed Database (recommended)
+
+Download the database dump [here](https://drive.google.com/file/d/1zIjdFv0LAKI_70goO_QIlE-RfgzBU5Gd/view?usp=sharing)
+
+Clone the repo and install dependencies
+```
+git clone https://github.com/raffayrowland/Recommendation-Algorithm-Visualiser.git
+cd Recommendation-Algorithm-Visualiser
+python3 -m venv venv
+source venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+Create the database and import from the dump
+
+```
+sudo -u postgres psql
+```
+
+At the postgres=# prompt, run
+```
+CREATE ROLE music_recommender_owner
+    WITH LOGIN
+    PASSWORD 'password';
+
+CREATE DATABASE music_recommender
+    OWNER music_recommender_owner;
+
+\connect music_recommender
+
+CREATE EXTENSION vector;
+
+SET ROLE music_recommender_owner;
+CREATE EXTENSION pg_trgm;
+RESET ROLE;
+
+\dx
+\quit
+```
+
+Make the .env file (note: if you changed the database name, owner, or password, you must also change them here)
+```
+touch .env
+cat >> .env << EOF
+DB_USER=music_recommender_owner
+DB_NAME=music_recommender
+DB_PASSWORD=password
+EOF
+```
+
+Restore the database from the terminal containing the dump file. Adjust the maintenance_work_mem and parallel workers
+to fit your machine
+
+```
+PGOPTIONS="-c maintenance_work_mem=6GB \
+-c max_parallel_maintenance_workers=7 \
+-c max_parallel_workers=8" \
+pg_restore \
+  --host=localhost \
+  --port=5432 \
+  --username=music_recommender_owner \
+  --password \
+  --dbname=music_recommender \
+  --exit-on-error \
+  --verbose \
+  tracks_and_combined_embedding.dump
+```
+
+Start the application
+
+```
+source venv/bin/activate
+python server.py
+```
+
 ## Tech stack
 
 - Postgres / pgvector
