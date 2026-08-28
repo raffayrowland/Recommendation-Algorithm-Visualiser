@@ -43,19 +43,17 @@ PostgreSQL 18
 - Python 3.12
 - PostgreSQL 18
 - pgvector for PostgreSQL 18
+- curl
 
 The preprocessed database dump was created with PostgreSQL 18, so using the same major version is recommended.
 
 ## Installation
 
-### Method 1: Preprocessed Database (recommended)
-
-Download the database dump [here](https://drive.google.com/file/d/1zIjdFv0LAKI_70goO_QIlE-RfgzBU5Gd/view?usp=sharing)
-
 Clone the repo and install dependencies
 ```
 git clone https://github.com/raffayrowland/Recommendation-Algorithm-Visualiser.git
 cd Recommendation-Algorithm-Visualiser
+curl -L "https://drive.usercontent.google.com/download?export=download&confirm=t&id=1zIjdFv0LAKI_70goO_QIlE-RfgzBU5Gd" -o database.dump
 python3 -m venv venv
 source venv/bin/activate
 python -m pip install -r requirements.txt
