@@ -59,9 +59,11 @@ source venv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
-Create the database and import from the dump
+Create the database and import from the dump. Ensure PostgreSQL 18 is installed
 
 ```
+sudo apt update
+sudo apt install postgresql-18-pgvector
 sudo -u postgres psql
 ```
 
@@ -101,8 +103,6 @@ Restore the database from the terminal containing the dump file. Adjust the main
 to fit your machine
 
 ```
-sudo apt update
-sudo apt install postgresql-18-pgvector
 sudo -u postgres /usr/lib/postgresql/18/bin/psql \
   --port=5432 \
   --dbname=music_recommender \
