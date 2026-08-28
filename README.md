@@ -101,6 +101,12 @@ Restore the database from the terminal containing the dump file. Adjust the main
 to fit your machine
 
 ```
+sudo apt update
+sudo apt install postgresql-18-pgvector
+sudo -u postgres /usr/lib/postgresql/18/bin/psql \
+  --port=5432 \
+  --dbname=music_recommender \
+  --command='CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;'
 PGOPTIONS="-c maintenance_work_mem=6GB \
 -c max_parallel_maintenance_workers=7 \
 -c max_parallel_workers=8" \
