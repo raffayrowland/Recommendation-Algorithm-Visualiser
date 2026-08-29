@@ -206,8 +206,8 @@ def insert_combined_embeddings():
     attribute_data = np.load("embeddings/attributes.npy", mmap_mode="c")
 
     with get_connection() as connection, connection.cursor() as cursor:
-        for start in range(0, len(track_id_data), BATCH_SIZE):
-            stop = min(start + BATCH_SIZE, len(track_id_data))
+        for start in range(0, len(track_id_data), 50_000):
+            stop = min(start + 50_000, len(track_id_data))
 
             track_ids = track_id_data[start:stop].tolist()
             embeddings = get_embeddings(

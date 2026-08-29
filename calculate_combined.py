@@ -2,10 +2,10 @@ import torch
 import os
 from model import MultimodalAutoencoder
 
-LYRIC_WEIGHT =     0.20
-COLLAB_WEIGHT =    0.45
-CLAP_WEIGHT =      0.25
-ATTRIBUTE_WEIGHT = 0.10
+LYRIC_WEIGHT =     0.02
+COLLAB_WEIGHT =    0.4
+CLAP_WEIGHT =      0.33
+ATTRIBUTE_WEIGHT = 0.25
 MODEL_NAME = (f"models/linear_CO{int(COLLAB_WEIGHT * 100)}"
               f"_CL{int(CLAP_WEIGHT * 100)}"
               f"_L{int(LYRIC_WEIGHT * 100)}"

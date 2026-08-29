@@ -6,13 +6,13 @@ import torch
 import torch.nn.functional as F
 from model import MultimodalAutoencoder
 
-LYRIC_WEIGHT =     0.20
-COLLAB_WEIGHT =    0.45
-CLAP_WEIGHT =      0.25
-ATTRIBUTE_WEIGHT = 0.10
+LYRIC_WEIGHT =     0.02
+COLLAB_WEIGHT =    0.4
+CLAP_WEIGHT =      0.33
+ATTRIBUTE_WEIGHT = 0.25
 
 BATCH_SIZE = 512
-EPOCHS = 3
+EPOCHS = 6
 LOSSES = ["total", "collab", "clap", "lyric", "attribute", "examples"]  # Losses recorded during training
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

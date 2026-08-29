@@ -32,6 +32,7 @@ def build_vector_space(n):
         metric="euclidean",
         n_neighbors=30,
         min_dist=0.1,
+        random_state=100
     ).fit(combined_embeddings)
     reduced_embeddings = reducer.embedding_
 
