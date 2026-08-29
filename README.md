@@ -45,6 +45,24 @@ PostgreSQL 18
 - pgvector for PostgreSQL 18
 - curl
 
+If you need to install any of these, use one of these commands
+
+```
+# Install curl
+sudo apt install curl
+
+# Install python3.12
+sudo apt install python3.12
+
+# Install postgreSQL 18
+sudo apt install -y postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+sudo apt install -y postgresql-18
+
+# Install pgvector
+sudo apt install -y postgresql-18-pgvector
+```
+
 The preprocessed database dump was created with PostgreSQL 18, so using the same major version is recommended.
 
 ## Installation
@@ -53,7 +71,7 @@ Clone the repo and install dependencies
 ```
 git clone https://github.com/raffayrowland/Recommendation-Algorithm-Visualiser.git
 cd Recommendation-Algorithm-Visualiser
-curl -L "https://drive.usercontent.google.com/download?export=download&confirm=t&id=1zIjdFv0LAKI_70goO_QIlE-RfgzBU5Gd" -o database.dump
+curl -L "https://drive.usercontent.google.com/download?id=1k7XxxjO4aWGqhGM1ebcqjBCCxhQ3MnC9&export=download&confirm=t" -o database.dump
 python3 -m venv venv
 source venv/bin/activate
 python -m pip install -r requirements.txt
@@ -62,8 +80,6 @@ python -m pip install -r requirements.txt
 Create the database and import from the dump. Ensure PostgreSQL 18 is installed
 
 ```
-sudo apt update
-sudo apt install postgresql-18-pgvector
 sudo -u postgres psql
 ```
 
