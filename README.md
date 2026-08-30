@@ -29,11 +29,13 @@ purposes.
 
 Showing the nearest neighbours for the song "All I want for Christmas is you" shows that similar songs include other christmas songs and similar sounding songs.
 
-<img width="1903" height="829" alt="screenshot" src="https://github.com/user-attachments/assets/c1d68a1f-efec-4436-b06e-73db11b1501b" />
+<img width="1913" height="826" alt="Screenshot from 2026-08-30 01-27-09" src="https://github.com/user-attachments/assets/5b463ca7-2455-41e0-9139-0096609f512e" />
 
 ### Video demonstration
 
-https://github.com/user-attachments/assets/793eb4e9-4800-435c-940f-3f5698d23c80
+[Screencast from 2026-08-30 01-32-23.webm](https://github.com/user-attachments/assets/eb5a5c7e-b53b-4de1-95c6-83902d634fd6)
+
+[Screencast from 2026-08-30 01-33-32.webm](https://github.com/user-attachments/assets/9856d965-e959-4bfb-8176-56c6dbd91a3c)
 
 ## Prerequisites
 
