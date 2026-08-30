@@ -33,9 +33,9 @@ Showing the nearest neighbours for the song "All I want for Christmas is you" sh
 
 ### Video demonstration
 
-[Screencast from 2026-08-30 01-32-23.webm](https://github.com/user-attachments/assets/eb5a5c7e-b53b-4de1-95c6-83902d634fd6)
+[3D Space view](https://github.com/user-attachments/assets/eb5a5c7e-b53b-4de1-95c6-83902d634fd6)
 
-[Screencast from 2026-08-30 01-33-32.webm](https://github.com/user-attachments/assets/9856d965-e959-4bfb-8176-56c6dbd91a3c)
+[Nearest neighbours for some songs](https://github.com/user-attachments/assets/9856d965-e959-4bfb-8176-56c6dbd91a3c)
 
 ## Prerequisites
 
